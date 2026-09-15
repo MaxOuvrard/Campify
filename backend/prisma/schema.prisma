@@ -1,0 +1,77 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  ADMIN
+  OPERATOR
+  VIEWER
+}
+
+enum CommandStatus {
+  PENDING
+  SENT
+  ACKED
+  FAILED
+}
+
+model Room {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  devices   Device[]
+}
+
+model Device {
+  id           String        @id @default(uuid())
+  name         String
+  type         String
+  room         Room          @relation(fields: [roomId], references: [id])
+  roomId       String
+  lastSeenAt   DateTime?
+  createdAt    DateTime      @default(now())
+  measurements Measurement[]
+  commands     Command[]
+
+  @@index([roomId])
+}
+
+model Measurement {
+  id         String   @id @default(uuid())
+  device     Device   @relation(fields: [deviceId], references: [id])
+  deviceId   String
+  type       String
+  value      Float
+  unit       String?
+  timestamp  DateTime
+  receivedAt DateTime @default(now())
+
+  @@index([deviceId, timestamp])
+}
+
+model Command {
+  id        String        @id @default(uuid())
+  device    Device        @relation(fields: [deviceId], references: [id])
+  deviceId  String
+  type      String
+  payload   Json?
+  status    CommandStatus @default(PENDING)
+  createdAt DateTime      @default(now())
+  sentAt    DateTime?
+  ackedAt   DateTime?
+
+  @@index([deviceId])
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(VIEWER)
+  createdAt    DateTime @default(now())
+}

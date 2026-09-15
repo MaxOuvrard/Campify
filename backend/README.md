@@ -1,0 +1,67 @@
+# Backend Campify
+
+API Fastify (TypeScript) en architecture hexagonale simplifiée. Voir
+[docs/architecture.md](../docs/architecture.md) pour la vue d'ensemble et
+[docs/decisions/](../docs/decisions/) pour le détail des choix.
+
+## Prérequis
+
+- Node.js 20+
+- Docker (pour Postgres + Mosquitto en local, via `docker-compose.yml`)
+
+## Démarrage
+
+```bash
+npm install
+cp .env.example .env   # ajuster si besoin
+docker compose up -d   # Postgres (5432) + Mosquitto (1883)
+npx prisma migrate dev # crée le schéma en base
+npm run dev
+```
+
+L'API est servie sur [http://localhost:3000](http://localhost:3000).
+
+## Scripts
+
+| Commande | Description |
+|---|---|
+| `npm run dev` | Démarre l'API et le client MQTT en mode watch (tsx) |
+| `npm run build` | Compile TypeScript vers `dist/` |
+| `npm start` | Démarre la version compilée (`dist/index.js`) |
+| `npm run typecheck` | Vérifie les types sans émettre de fichiers |
+| `npm test` | Typecheck + tests unitaires et d'intégration |
+| `npm run prisma:generate` | Régénère le client Prisma |
+| `npm run prisma:migrate` | Applique les migrations en dev |
+| `npm run prisma:studio` | Interface d'exploration de la base |
+
+## Structure
+
+```
+src/
+├── domain/       # entités, ports (interfaces), services métier purs
+├── infra/        # adapters Prisma (DB) et mqtt.js (publisher de commandes)
+├── driving/      # adapters Fastify (API) et mqtt.js (souscription)
+├── composition.ts
+└── shared/       # config, logger, erreurs, conventions de topics MQTT
+```
+
+## Tests
+
+```bash
+npm test
+```
+
+- Les tests unitaires de `domain/services` utilisent des fakes en mémoire
+  (`test/fakes/`), sans DB ni broker MQTT réels.
+- Le test de contrat du repository Prisma
+  (`test/infra/db/prismaRoomRepository.test.ts`) nécessite une base
+  réelle : il est automatiquement ignoré si `DATABASE_URL` n'est pas
+  définie.
+
+## ⚠️ Contrat MQTT provisoire
+
+Les topics et la forme des payloads MQTT (`src/shared/mqttTopics.ts`,
+`src/driving/mqtt/schemas.ts`) sont des **placeholders** en attendant le
+contrat exact imposé par le kit IoT. Voir
+[ADR 0004](../docs/decisions/0004-contrat-mqtt-placeholder.md) pour ce
+qui devra être ajusté.

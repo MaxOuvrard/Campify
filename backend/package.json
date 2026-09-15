@@ -1,0 +1,54 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "API Campify (Fastify + TypeScript, architecture hexagonale)",
+  "main": "dist/index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "test"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run typecheck && tsc -p test/tsconfig.json && c8 node --test -r ts-node/register \"test/**/*.test.ts\"",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:studio": "prisma studio"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MaxOuvrard/Campify.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/MaxOuvrard/Campify/issues"
+  },
+  "homepage": "https://github.com/MaxOuvrard/Campify#readme",
+  "dependencies": {
+    "@fastify/jwt": "^9.0.1",
+    "@fastify/sensible": "^6.0.0",
+    "@prisma/client": "^6.1.0",
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.4.5",
+    "fastify": "^5.0.0",
+    "fastify-plugin": "^5.0.0",
+    "mqtt": "^5.10.3",
+    "pino": "^9.5.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^24.0.8",
+    "c8": "^10.1.2",
+    "fastify-tsconfig": "^3.0.0",
+    "pino-pretty": "^11.3.0",
+    "prisma": "^6.1.0",
+    "ts-node": "^10.4.0",
+    "tsx": "^4.19.2",
+    "typescript": "~5.9.2"
+  }
+}

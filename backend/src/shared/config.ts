@@ -1,0 +1,22 @@
+import { z } from 'zod'
+
+const envSchema = z.object({
+  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  PORT: z.coerce.number().default(3000),
+  DATABASE_URL: z.string(),
+  MQTT_URL: z.string().default('mqtt://localhost:1883'),
+  MQTT_TOPIC_PREFIX: z.string().default('campify'),
+  JWT_SECRET: z.string(),
+  DEVICE_STALE_THRESHOLD_MS: z.coerce.number().default(5 * 60 * 1000),
+  LOG_LEVEL: z.string().default('info')
+})
+
+export type Config = z.infer<typeof envSchema>
+
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+  const parsed = envSchema.safeParse(env)
+  if (!parsed.success) {
+    throw new Error(`Invalid environment configuration: ${parsed.error.message}`)
+  }
+  return parsed.data
+}
