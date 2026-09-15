@@ -47,4 +47,13 @@ export class PrismaMeasurementRepository implements MeasurementRepository {
     })
     return rows.map(toDomain)
   }
+
+  async findLatestByDeviceGroupedByType(deviceId: string): Promise<Measurement[]> {
+    const rows = await this.prisma.measurement.findMany({
+      where: { deviceId },
+      distinct: ['type'],
+      orderBy: { timestamp: 'desc' }
+    })
+    return rows.map(toDomain)
+  }
 }

@@ -70,6 +70,16 @@ export class InMemoryMeasurementRepository implements MeasurementRepository {
   async findByDeviceInRange(deviceId: string, from: Date, to: Date): Promise<Measurement[]> {
     return this.measurements.filter((m) => m.deviceId === deviceId && m.timestamp >= from && m.timestamp <= to)
   }
+
+  async findLatestByDeviceGroupedByType(deviceId: string): Promise<Measurement[]> {
+    const latestByType = new Map<string, Measurement>()
+    for (const m of this.measurements) {
+      if (m.deviceId !== deviceId) continue
+      const current = latestByType.get(m.type)
+      if (!current || m.timestamp > current.timestamp) latestByType.set(m.type, m)
+    }
+    return [...latestByType.values()]
+  }
 }
 
 export class InMemoryCommandRepository implements CommandRepository {
