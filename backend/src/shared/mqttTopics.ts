@@ -1,9 +1,10 @@
 /**
- * Conventions de topics MQTT. PLACEHOLDER en attendant le contrat exact du
- * kit IoT (topics, forme des payloads) : voir
- * docs/decisions/0004-contrat-mqtt-placeholder.md. À ajuster une fois le
- * contrat connu, sans changer la manière dont le domaine consomme les
- * mesures/acquittements.
+ * Conventions de topics MQTT. Le topic de mesures (`measurementFilter`,
+ * `parseDeviceIdFromMeasurementTopic`) reflète le contrat réel du kit,
+ * observé sur le broker de démonstration (`campus/v1/devices/{deviceId}/telemetry`).
+ * Le topic de commandes/acquittements reste un PLACEHOLDER non vérifié
+ * (aucun kit n'a encore émis d'ack) : voir
+ * docs/decisions/0004-contrat-mqtt-placeholder.md.
  */
 export interface MqttTopics {
   measurementFilter: string
@@ -15,7 +16,7 @@ export interface MqttTopics {
 
 export function createMqttTopics(prefix: string): MqttTopics {
   return {
-    measurementFilter: `${prefix}/rooms/+/devices/+/measurements`,
+    measurementFilter: `${prefix}/v1/devices/+/telemetry`,
     commandAckFilter: `${prefix}/devices/+/commands/ack`,
     commandTopic: (deviceId: string) => `${prefix}/devices/${deviceId}/commands`,
     parseDeviceIdFromMeasurementTopic: (topic: string) => extractSegmentAfter(topic, 'devices'),

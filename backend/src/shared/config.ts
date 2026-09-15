@@ -5,7 +5,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().default(3000),
   DATABASE_URL: z.string(),
   MQTT_URL: z.string().default('mqtt://localhost:1883'),
-  MQTT_TOPIC_PREFIX: z.string().default('campify'),
+  MQTT_TOPIC_PREFIX: z.string().default('campus'),
   JWT_SECRET: z.string(),
   DEVICE_STALE_THRESHOLD_MS: z.coerce.number().default(5 * 60 * 1000),
   LOG_LEVEL: z.string().default('info')

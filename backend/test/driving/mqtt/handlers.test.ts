@@ -7,9 +7,9 @@ import { CommandService } from '../../../src/domain/services/CommandService'
 import { InMemoryDeviceRepository, InMemoryMeasurementRepository, InMemoryCommandRepository } from '../../fakes/inMemoryRepositories'
 import { FixedClock, FakeLogger, FakeMqttPublisher } from '../../fakes/testDoubles'
 
-const topics = createMqttTopics('campify')
+const topics = createMqttTopics('campus')
 
-test('measurement handler validates, ingests and persists a well-formed message', async () => {
+test('measurement handler validates, ingests and persists every metric of a well-formed telemetry message', async () => {
   const devices = new InMemoryDeviceRepository()
   const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
   const measurements = new InMemoryMeasurementRepository()
@@ -17,13 +17,25 @@ test('measurement handler validates, ingests and persists a well-formed message'
   const ingestion = new MeasurementIngestionService(measurements, devices, new FixedClock(new Date()), logger)
 
   const handler = createMeasurementHandler({ topics, ingestion, logger })
-  const topic = `campify/rooms/room-1/devices/${device.id}/measurements`
-  const payload = JSON.stringify({ type: 'temperature', value: 21, unit: 'C', timestamp: '2024-01-01T00:00:00.000Z' })
+  const topic = `campus/v1/devices/${device.id}/telemetry`
+  const payload = JSON.stringify({
+    schema_version: 1,
+    message_id: 'abc-1',
+    device_id: device.id,
+    room_id: 'salle-203',
+    observed_at: '2024-01-01T00:00:00.000Z',
+    temperature: { value: 21.7, unit: '°C' },
+    co2: { value: 2500, unit: 'ppm' }
+  })
 
   await handler(topic, payload)
 
-  assert.equal(measurements.measurements.length, 1)
-  assert.equal(measurements.measurements[0].deviceId, device.id)
+  assert.equal(measurements.measurements.length, 2)
+  assert.deepEqual(
+    measurements.measurements.map((m) => m.type).sort(),
+    ['co2', 'temperature']
+  )
+  assert.ok(measurements.measurements.every((m) => m.deviceId === device.id))
 })
 
 test('measurement handler logs and drops an invalid payload', async () => {
@@ -34,10 +46,10 @@ test('measurement handler logs and drops an invalid payload', async () => {
   const ingestion = new MeasurementIngestionService(measurements, devices, new FixedClock(new Date()), logger)
 
   const handler = createMeasurementHandler({ topics, ingestion, logger })
-  const topic = `campify/rooms/room-1/devices/${device.id}/measurements`
+  const topic = `campus/v1/devices/${device.id}/telemetry`
 
   await handler(topic, 'not json')
-  await handler(topic, JSON.stringify({ type: 'temperature' }))
+  await handler(topic, JSON.stringify({ schema_version: 1, message_id: 'abc-1', device_id: device.id }))
 
   assert.equal(measurements.measurements.length, 0)
   assert.equal(logger.entries.filter((e) => e.level === 'warn').length, 2)

@@ -2,7 +2,7 @@ import { Logger } from '../../domain/ports/Logger'
 import { MqttTopics } from '../../shared/mqttTopics'
 import { MeasurementIngestionService } from '../../domain/services/MeasurementIngestionService'
 import { CommandService } from '../../domain/services/CommandService'
-import { incomingMeasurementSchema, incomingCommandAckSchema } from './schemas'
+import { incomingTelemetrySchema, incomingCommandAckSchema, extractMetrics } from './schemas'
 
 export interface MeasurementHandlerDeps {
   topics: MqttTopics
@@ -24,22 +24,26 @@ export function createMeasurementHandler(deps: MeasurementHandlerDeps) {
       return
     }
 
-    const result = incomingMeasurementSchema.safeParse(json)
+    const result = incomingTelemetrySchema.safeParse(json)
     if (!result.success) {
       deps.logger.warn('mqtt measurement failed schema validation', { topic, error: result.error.message })
       return
     }
 
-    const outcome = await deps.ingestion.ingest({
-      deviceId,
-      type: result.data.type,
-      value: result.data.value,
-      unit: result.data.unit ?? null,
-      timestamp: new Date(result.data.timestamp)
-    })
+    const timestamp = new Date(result.data.observed_at)
 
-    if (!outcome.accepted) {
-      deps.logger.info('measurement rejected', { deviceId, reason: outcome.reason })
+    for (const metric of extractMetrics(result.data)) {
+      const outcome = await deps.ingestion.ingest({
+        deviceId,
+        type: metric.type,
+        value: metric.value,
+        unit: metric.unit,
+        timestamp
+      })
+
+      if (!outcome.accepted) {
+        deps.logger.info('measurement rejected', { deviceId, type: metric.type, reason: outcome.reason })
+      }
     }
   }
 }
