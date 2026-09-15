@@ -16,10 +16,20 @@ npm install
 cp .env.example .env   # ajuster si besoin
 docker compose up -d   # Postgres (5432) + Mosquitto (1883)
 npx prisma migrate dev # crée le schéma en base
+npx prisma db seed     # salles/devices de démo + utilisateur demo@campify.local
 npm run dev
 ```
 
 L'API est servie sur [http://localhost:3000](http://localhost:3000).
+
+### Alternative : tout via Docker Compose
+
+`docker compose up -d --build` démarre aussi le backend (dans un
+conteneur buildé depuis le `Dockerfile`), en plus de Postgres et
+Mosquitto — pratique pour tester l'image sans environnement Node local.
+Le conteneur applique les migrations (`prisma migrate deploy`) au
+démarrage ; il faut lancer `npx prisma db seed` séparément (en local,
+contre le Postgres exposé sur `5432`) pour peupler les données de démo.
 
 ## Scripts
 

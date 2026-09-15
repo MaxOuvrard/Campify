@@ -17,5 +17,17 @@ services:
     volumes:
       - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
 
+  backend:
+    build: .
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://campify:campify@postgres:5432/campify?schema=public
+    ports:
+      - '3000:3000'
+    depends_on:
+      - postgres
+      - mosquitto
+
 volumes:
   postgres-data:

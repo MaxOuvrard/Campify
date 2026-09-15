@@ -33,16 +33,24 @@ export function createMeasurementHandler(deps: MeasurementHandlerDeps) {
     const timestamp = new Date(result.data.observed_at)
 
     for (const metric of extractMetrics(result.data)) {
-      const outcome = await deps.ingestion.ingest({
-        deviceId,
-        type: metric.type,
-        value: metric.value,
-        unit: metric.unit,
-        timestamp
-      })
+      try {
+        const outcome = await deps.ingestion.ingest({
+          deviceId,
+          type: metric.type,
+          value: metric.value,
+          unit: metric.unit,
+          timestamp
+        })
 
-      if (!outcome.accepted) {
-        deps.logger.info('measurement rejected', { deviceId, type: metric.type, reason: outcome.reason })
+        if (!outcome.accepted) {
+          deps.logger.info('measurement rejected', { deviceId, type: metric.type, reason: outcome.reason })
+        }
+      } catch (err) {
+        deps.logger.warn('failed to ingest measurement', {
+          deviceId,
+          type: metric.type,
+          error: (err as Error).message
+        })
       }
     }
   }
