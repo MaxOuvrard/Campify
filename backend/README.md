@@ -43,6 +43,7 @@ contre le Postgres exposé sur `5432`) pour peupler les données de démo.
 | `npm run prisma:generate` | Régénère le client Prisma |
 | `npm run prisma:migrate` | Applique les migrations en dev |
 | `npm run prisma:studio` | Interface d'exploration de la base |
+| `npm run prisma:seed` | Peuple les salles/devices de démo + l'utilisateur `demo@campify.local` |
 
 ## Structure
 
@@ -68,10 +69,11 @@ npm test
   réelle : il est automatiquement ignoré si `DATABASE_URL` n'est pas
   définie.
 
-## ⚠️ Contrat MQTT provisoire
+## ⚠️ Contrat MQTT — commandes encore provisoires
 
-Les topics et la forme des payloads MQTT (`src/shared/mqttTopics.ts`,
-`src/driving/mqtt/schemas.ts`) sont des **placeholders** en attendant le
-contrat exact imposé par le kit IoT. Voir
-[ADR 0004](../docs/decisions/0004-contrat-mqtt-placeholder.md) pour ce
-qui devra être ajusté.
+Le contrat de **télémétrie** (topics + payloads, `src/shared/mqttTopics.ts`,
+`src/driving/mqtt/schemas.ts`) est confirmé : observé sur le broker de
+démonstration. Le contrat de **commandes/acquittements** reste un
+**placeholder** non vérifié (aucune commande n'a encore été publiée vers
+le kit). Voir [ADR 0004](../docs/decisions/0004-contrat-mqtt-placeholder.md)
+pour le détail de ce qui reste à ajuster.

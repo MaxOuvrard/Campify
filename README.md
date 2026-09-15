@@ -43,6 +43,7 @@ npm install
 cp .env.example .env
 docker compose up -d   # Postgres + Mosquitto
 npx prisma migrate dev
+npx prisma db seed     # salles/devices de démo + utilisateur demo@campify.local
 npm run dev
 ```
 
