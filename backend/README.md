@@ -22,6 +22,16 @@ npm run dev
 
 L'API est servie sur [http://localhost:3000](http://localhost:3000).
 
+### Voir de vraies mesures (broker de démo du kit)
+
+Avec la configuration par défaut (`MQTT_URL=mqtt://localhost:1883`), le
+backend écoute le Mosquitto local du `docker-compose.yml` — sans device qui
+y publie, aucune mesure n'arrive. Pour recevoir les mesures réelles du kit
+de démo, pointer `MQTT_URL` vers le broker de démonstration (adresse et
+identifiants dans
+[ADR 0004](../docs/decisions/0004-contrat-mqtt-placeholder.md)), au format
+`mqtt://<user>:<password>@<host>:<port>`.
+
 ### Alternative : tout via Docker Compose
 
 `docker compose up -d --build` démarre aussi le backend (dans un
