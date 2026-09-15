@@ -37,3 +37,45 @@ export async function login(email: string, password: string): Promise<string> {
   const data = (await response.json()) as { token: string }
   return data.token
 }
+
+export interface Room {
+  id: string
+  name: string
+  createdAt: string
+}
+
+export interface LatestMeasurement {
+  id: string
+  deviceId: string
+  deviceName: string
+  type: string
+  value: number
+  unit: string | null
+  timestamp: string
+  receivedAt: string
+}
+
+async function authorizedGet<T>(path: string, token: string): Promise<T> {
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+  } catch {
+    throw new ApiError('Impossible de joindre le serveur')
+  }
+
+  if (!response.ok) {
+    throw new ApiError(response.status === 401 ? 'Session expirée, reconnecte-toi' : 'Erreur serveur', response.status)
+  }
+
+  return (await response.json()) as T
+}
+
+export function fetchRooms(token: string): Promise<Room[]> {
+  return authorizedGet<Room[]>('/rooms', token)
+}
+
+export function fetchLatestMeasurements(token: string, roomId: string): Promise<LatestMeasurement[]> {
+  return authorizedGet<LatestMeasurement[]>(`/rooms/${roomId}/measurements/latest`, token)
+}
