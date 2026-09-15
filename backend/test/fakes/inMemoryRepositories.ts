@@ -2,9 +2,13 @@ import { randomUUID } from 'node:crypto'
 import { DeviceRepository, NewDevice } from '../../src/domain/ports/DeviceRepository'
 import { MeasurementRepository } from '../../src/domain/ports/MeasurementRepository'
 import { CommandRepository } from '../../src/domain/ports/CommandRepository'
+import { RoomRepository } from '../../src/domain/ports/RoomRepository'
+import { UserRepository } from '../../src/domain/ports/UserRepository'
 import { Device } from '../../src/domain/entities/Device'
 import { Measurement, NewMeasurement } from '../../src/domain/entities/Measurement'
 import { Command, CommandStatus, NewCommand } from '../../src/domain/entities/Command'
+import { Room } from '../../src/domain/entities/Room'
+import { User } from '../../src/domain/entities/User'
 
 export class InMemoryDeviceRepository implements DeviceRepository {
   private readonly devices = new Map<string, Device>()
@@ -110,5 +114,43 @@ export class InMemoryCommandRepository implements CommandRepository {
     command.status = status
     if (status === 'SENT') command.sentAt = at
     if (status === 'ACKED') command.ackedAt = at
+  }
+}
+
+export class InMemoryRoomRepository implements RoomRepository {
+  private readonly rooms = new Map<string, Room>()
+
+  async findAll(): Promise<Room[]> {
+    return [...this.rooms.values()]
+  }
+
+  async findById(id: string): Promise<Room | null> {
+    return this.rooms.get(id) ?? null
+  }
+
+  async create(name: string): Promise<Room> {
+    const room: Room = { id: randomUUID(), name, createdAt: new Date() }
+    this.rooms.set(room.id, room)
+    return room
+  }
+
+  seed(room: Room): void {
+    this.rooms.set(room.id, room)
+  }
+}
+
+export class InMemoryUserRepository implements UserRepository {
+  private readonly users = new Map<string, User>()
+
+  async findByEmail(email: string): Promise<User | null> {
+    return [...this.users.values()].find((u) => u.email === email) ?? null
+  }
+
+  async findById(id: string): Promise<User | null> {
+    return this.users.get(id) ?? null
+  }
+
+  seed(user: User): void {
+    this.users.set(user.id, user)
   }
 }

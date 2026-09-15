@@ -15,9 +15,9 @@ test('PrismaRoomRepository respects the RoomRepository contract', { skip: !proce
   const prisma = new PrismaClient()
   const repository = new PrismaRoomRepository(prisma)
 
+  const name = `test-room-${Date.now()}`
+  const created = await repository.create(name)
   try {
-    const name = `test-room-${Date.now()}`
-    const created = await repository.create(name)
     assert.equal(created.name, name)
 
     const found = await repository.findById(created.id)
@@ -26,7 +26,7 @@ test('PrismaRoomRepository respects the RoomRepository contract', { skip: !proce
     const all = await repository.findAll()
     assert.ok(all.some((room: Room) => room.id === created.id))
   } finally {
-    await prisma.room.deleteMany({ where: { name: { startsWith: 'test-room-' } } })
+    await prisma.room.deleteMany({ where: { id: created.id } })
     await prisma.$disconnect()
   }
 })
