@@ -53,6 +53,8 @@ export interface LatestMeasurement {
   unit: string | null
   timestamp: string
   receivedAt: string
+  /** Calculé côté backend (domain/services/freshness.ts) : la mesure elle-même est-elle encore à jour ? */
+  fresh: boolean
 }
 
 async function authorizedGet<T>(path: string, token: string): Promise<T> {
