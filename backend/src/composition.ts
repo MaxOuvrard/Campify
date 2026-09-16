@@ -56,7 +56,8 @@ export async function startApplication(): Promise<Application> {
     devices,
     measurements,
     commandService,
-    commands
+    commands,
+    staleThresholdMs: config.DEVICE_STALE_THRESHOLD_MS
   })
 
   await api.listen({ port: config.PORT, host: '0.0.0.0' })

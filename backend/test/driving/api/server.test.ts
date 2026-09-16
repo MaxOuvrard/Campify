@@ -47,7 +47,8 @@ async function buildTestApp() {
     devices,
     measurements,
     commandService,
-    commands
+    commands,
+    staleThresholdMs: 5 * 60 * 1000
   })
 
   return { app, rooms, devices, measurements, commands, users, publisher, room, device }
@@ -174,6 +175,32 @@ test('GET /rooms/:id/measurements/latest aggregates the latest value per metric 
   assert.ok(body.every((m) => m.deviceName === 'Sensor 1'))
 })
 
+test('GET /rooms/:id/measurements/latest marks fresh:true for a recent measurement and fresh:false for a stale one', async (t) => {
+  const { app, room, device, measurements } = await buildTestApp()
+  t.after(() => app.close())
+  const token = await loginAs(app, 'viewer@test.local', 'viewer-pass')
+
+  await measurements.create({ deviceId: device.id, type: 'temperature', value: 21, unit: '°C', timestamp: new Date() })
+  await measurements.create({
+    deviceId: device.id,
+    type: 'co2',
+    value: 2500,
+    unit: 'ppm',
+    timestamp: new Date('2024-01-01T00:00:00Z')
+  })
+
+  const response = await app.inject({
+    method: 'GET',
+    url: `/rooms/${room.id}/measurements/latest`,
+    headers: authHeader(token)
+  })
+
+  assert.equal(response.statusCode, 200)
+  const body = response.json() as Array<{ type: string; fresh: boolean }>
+  assert.equal(body.find((m) => m.type === 'temperature')?.fresh, true)
+  assert.equal(body.find((m) => m.type === 'co2')?.fresh, false)
+})
+
 test('GET /rooms/:id/measurements/latest returns an empty list when the room has no measurement yet', async (t) => {
   const { app, room } = await buildTestApp()
   t.after(() => app.close())
@@ -241,6 +268,30 @@ test('GET /devices/:id returns the device when it exists', async (t) => {
 
   assert.equal(response.statusCode, 200)
   assert.equal((response.json() as { id: string }).id, device.id)
+})
+
+test('GET /devices/:id reports present:false when the device has never been seen', async (t) => {
+  const { app, device } = await buildTestApp()
+  t.after(() => app.close())
+  const token = await loginAs(app, 'viewer@test.local', 'viewer-pass')
+
+  const response = await app.inject({ method: 'GET', url: `/devices/${device.id}`, headers: authHeader(token) })
+
+  assert.equal(response.statusCode, 200)
+  assert.equal((response.json() as { present: boolean }).present, false)
+})
+
+test('GET /devices/:id reports present:true when lastSeenAt is within the stale threshold', async (t) => {
+  const { app, device, devices } = await buildTestApp()
+  t.after(() => app.close())
+  const token = await loginAs(app, 'viewer@test.local', 'viewer-pass')
+
+  await devices.updateLastSeen(device.id, new Date())
+
+  const response = await app.inject({ method: 'GET', url: `/devices/${device.id}`, headers: authHeader(token) })
+
+  assert.equal(response.statusCode, 200)
+  assert.equal((response.json() as { present: boolean }).present, true)
 })
 
 test('GET /devices/:id/measurements defaults to the last 24 hours', async (t) => {

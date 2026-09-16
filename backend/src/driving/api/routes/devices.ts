@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { MeasurementRepository } from '../../../domain/ports/MeasurementRepository'
 import { DeviceRepository } from '../../../domain/ports/DeviceRepository'
 import { resolveHistoryRange } from '../../../domain/services/history'
+import { isFresh } from '../../../domain/services/freshness'
 
 const rangeQuerySchema = z.object({
   from: z.string().datetime().optional(),
@@ -12,6 +13,7 @@ const rangeQuerySchema = z.object({
 export interface DeviceRoutesDeps {
   devices: DeviceRepository
   measurements: MeasurementRepository
+  staleThresholdMs: number
 }
 
 export default async function deviceRoutes(fastify: FastifyInstance, deps: DeviceRoutesDeps): Promise<void> {
@@ -19,7 +21,10 @@ export default async function deviceRoutes(fastify: FastifyInstance, deps: Devic
     const { id } = request.params as { id: string }
     const device = await deps.devices.findById(id)
     if (device === null) return reply.code(404).send({ error: 'not found' })
-    return device
+    // Présence observée du device : a-t-il envoyé une donnée récente (quel
+    // que soit son type), indépendamment de la fraîcheur d'une mesure
+    // précise. Voir domain/services/freshness.ts.
+    return { ...device, present: isFresh(device.lastSeenAt, new Date(), deps.staleThresholdMs) }
   })
 
   fastify.get('/devices/:id/measurements', { preHandler: fastify.authenticate }, async (request) => {

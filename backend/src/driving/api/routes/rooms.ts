@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { RoomRepository } from '../../../domain/ports/RoomRepository'
 import { DeviceRepository } from '../../../domain/ports/DeviceRepository'
 import { MeasurementRepository } from '../../../domain/ports/MeasurementRepository'
+import { isFresh } from '../../../domain/services/freshness'
 
 const createRoomSchema = z.object({ name: z.string().min(1) })
 
@@ -10,6 +11,7 @@ export interface RoomRoutesDeps {
   rooms: RoomRepository
   devices: DeviceRepository
   measurements: MeasurementRepository
+  staleThresholdMs: number
 }
 
 export default async function roomRoutes(fastify: FastifyInstance, deps: RoomRoutesDeps): Promise<void> {
@@ -27,11 +29,20 @@ export default async function roomRoutes(fastify: FastifyInstance, deps: RoomRou
   fastify.get('/rooms/:id/measurements/latest', { preHandler: fastify.authenticate }, async (request) => {
     const { id } = request.params as { id: string }
     const devices = await deps.devices.findByRoom(id)
+    const now = new Date()
 
     const perDevice = await Promise.all(
       devices.map(async (device) => {
         const latest = await deps.measurements.findLatestByDeviceGroupedByType(device.id)
-        return latest.map((measurement) => ({ ...measurement, deviceName: device.name }))
+        // Fraîcheur de cette mesure précise (son propre timestamp), à
+        // distinguer de la présence du device (lastSeenAt) exposée par
+        // GET /devices/:id : les deux peuvent diverger sur un device
+        // multi-métriques dont les capteurs n'envoient pas au même rythme.
+        return latest.map((measurement) => ({
+          ...measurement,
+          deviceName: device.name,
+          fresh: isFresh(measurement.timestamp, now, deps.staleThresholdMs)
+        }))
       })
     )
 
