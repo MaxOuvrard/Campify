@@ -59,7 +59,8 @@ export class InMemoryMeasurementRepository implements MeasurementRepository {
       value: input.value,
       unit: input.unit ?? null,
       timestamp: input.timestamp,
-      receivedAt: new Date()
+      receivedAt: new Date(),
+      messageId: input.messageId ?? null
     }
     this.measurements.push(measurement)
     return measurement
@@ -74,7 +75,7 @@ export class InMemoryMeasurementRepository implements MeasurementRepository {
   async findByDeviceInRange(deviceId: string, from: Date, to: Date, limit: number): Promise<Measurement[]> {
     return this.measurements
       .filter((m) => m.deviceId === deviceId && m.timestamp >= from && m.timestamp <= to)
-      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime() || b.receivedAt.getTime() - a.receivedAt.getTime())
       .slice(0, limit)
       .reverse()
   }

@@ -28,7 +28,7 @@ export class MeasurementIngestionService {
 
   async ingest(input: NewMeasurement): Promise<MeasurementIngestionResult> {
     const latest = await this.measurements.findLatestByDevice(input.deviceId, input.type)
-    const decision = decideMeasurement(latest, input.timestamp)
+    const decision = decideMeasurement(latest, { timestamp: input.timestamp, messageId: input.messageId })
 
     if (!decision.accepted) {
       this.logger.warn('measurement rejected', {

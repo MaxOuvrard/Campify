@@ -6,6 +6,8 @@ export interface Measurement {
   unit: string | null
   timestamp: Date
   receivedAt: Date
+  /** Identifiant du message source (ex: message_id MQTT), utilisé pour la dédup. */
+  messageId: string | null
 }
 
 export interface NewMeasurement {
@@ -14,4 +16,5 @@ export interface NewMeasurement {
   value: number
   unit?: string | null
   timestamp: Date
+  messageId?: string | null
 }

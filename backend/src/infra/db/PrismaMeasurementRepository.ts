@@ -10,6 +10,7 @@ interface MeasurementRow {
   unit: string | null
   timestamp: Date
   receivedAt: Date
+  messageId: string | null
 }
 
 function toDomain(row: MeasurementRow): Measurement {
@@ -26,7 +27,8 @@ export class PrismaMeasurementRepository implements MeasurementRepository {
         type: input.type,
         value: input.value,
         unit: input.unit ?? null,
-        timestamp: input.timestamp
+        timestamp: input.timestamp,
+        messageId: input.messageId ?? null
       }
     })
     return toDomain(row)
@@ -43,7 +45,10 @@ export class PrismaMeasurementRepository implements MeasurementRepository {
   async findByDeviceInRange(deviceId: string, from: Date, to: Date, limit: number): Promise<Measurement[]> {
     const rows = await this.prisma.measurement.findMany({
       where: { deviceId, timestamp: { gte: from, lte: to } },
-      orderBy: { timestamp: 'desc' },
+      // Tri secondaire par receivedAt : deux métriques d'un même message
+      // (ex: temperature + co2) partagent le même timestamp, il faut un
+      // ordre déterministe pour que `take` tronque toujours pareil.
+      orderBy: [{ timestamp: 'desc' }, { receivedAt: 'desc' }],
       take: limit
     })
     return rows.map(toDomain).reverse()

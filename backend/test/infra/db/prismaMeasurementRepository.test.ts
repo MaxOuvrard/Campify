@@ -35,7 +35,7 @@ test('PrismaMeasurementRepository respects the MeasurementRepository contract', 
       unit: '°C',
       timestamp: new Date('2024-01-01T11:00:00Z')
     })
-    await measurements.create({
+    const co2 = await measurements.create({
       deviceId: device.id,
       type: 'co2',
       value: 2500,
@@ -61,11 +61,11 @@ test('PrismaMeasurementRepository respects the MeasurementRepository contract', 
       device.id,
       new Date('2024-01-01T09:00:00Z'),
       new Date('2024-01-01T12:00:00Z'),
-      1
+      2
     )
     assert.deepEqual(
-      limited.map((m) => m.id),
-      [newer.id]
+      new Set(limited.map((m) => m.id)),
+      new Set([newer.id, co2.id])
     )
 
     const latestByType = await measurements.findLatestByDeviceGroupedByType(device.id)

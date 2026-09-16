@@ -50,6 +50,9 @@ model Measurement {
   unit       String?
   timestamp  DateTime
   receivedAt DateTime @default(now())
+  // Identifiant du message source (ex: message_id MQTT) : permet de
+  // détecter une retransmission exacte indépendamment du timestamp.
+  messageId  String?
 
   @@index([deviceId, timestamp])
 }

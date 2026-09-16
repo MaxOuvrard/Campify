@@ -39,7 +39,8 @@ export function createMeasurementHandler(deps: MeasurementHandlerDeps) {
           type: metric.type,
           value: metric.value,
           unit: metric.unit,
-          timestamp
+          timestamp,
+          messageId: result.data.message_id
         })
 
         if (!outcome.accepted) {

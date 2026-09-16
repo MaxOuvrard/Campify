@@ -11,7 +11,8 @@ function makeMeasurement(type: string, value: number): Measurement {
     value,
     unit: null,
     timestamp: new Date(),
-    receivedAt: new Date()
+    receivedAt: new Date(),
+    messageId: null
   }
 }
 
