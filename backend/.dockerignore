@@ -3,3 +3,6 @@ dist
 coverage
 .env
 *.log
+# Clients Prisma générés côté hôte : binaires spécifiques à l'OS/l'arch,
+# doivent être régénérés dans l'image pour la plateforme du conteneur.
+prisma/generated
