@@ -260,6 +260,28 @@ test('GET /devices/:id/measurements defaults to the last 24 hours', async (t) =>
   assert.equal(body[0].value, 19)
 })
 
+test('GET /devices/:id/measurements clamps a "from" older than the max history span', async (t) => {
+  const { app, device, measurements } = await buildTestApp()
+  t.after(() => app.close())
+  const token = await loginAs(app, 'viewer@test.local', 'viewer-pass')
+
+  const now = Date.now()
+  await measurements.create({ deviceId: device.id, type: 'temperature', value: 19, timestamp: new Date(now - 60 * 60 * 1000) })
+  await measurements.create({ deviceId: device.id, type: 'temperature', value: 18, timestamp: new Date(now - 10 * 24 * 60 * 60 * 1000) })
+
+  const tenDaysAgo = new Date(now - 10 * 24 * 60 * 60 * 1000).toISOString()
+  const response = await app.inject({
+    method: 'GET',
+    url: `/devices/${device.id}/measurements?from=${tenDaysAgo}`,
+    headers: authHeader(token)
+  })
+
+  assert.equal(response.statusCode, 200)
+  const body = response.json() as Array<{ value: number }>
+  assert.equal(body.length, 1)
+  assert.equal(body[0].value, 19)
+})
+
 test('GET /devices/:id/measurements rejects an invalid date range', async (t) => {
   const { app, device } = await buildTestApp()
   t.after(() => app.close())

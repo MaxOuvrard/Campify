@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { MeasurementRepository } from '../../../domain/ports/MeasurementRepository'
 import { DeviceRepository } from '../../../domain/ports/DeviceRepository'
+import { resolveHistoryRange } from '../../../domain/services/history'
 
 const rangeQuerySchema = z.object({
   from: z.string().datetime().optional(),
@@ -24,8 +25,13 @@ export default async function deviceRoutes(fastify: FastifyInstance, deps: Devic
   fastify.get('/devices/:id/measurements', { preHandler: fastify.authenticate }, async (request) => {
     const { id } = request.params as { id: string }
     const query = rangeQuerySchema.parse(request.query)
-    const to = query.to ? new Date(query.to) : new Date()
-    const from = query.from ? new Date(query.from) : new Date(to.getTime() - 24 * 60 * 60 * 1000)
-    return deps.measurements.findByDeviceInRange(id, from, to)
+    const range = resolveHistoryRange(
+      {
+        from: query.from ? new Date(query.from) : undefined,
+        to: query.to ? new Date(query.to) : undefined
+      },
+      new Date()
+    )
+    return deps.measurements.findByDeviceInRange(id, range.from, range.to, range.limit)
   })
 }

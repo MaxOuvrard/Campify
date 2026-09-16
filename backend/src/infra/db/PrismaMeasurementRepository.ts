@@ -40,12 +40,13 @@ export class PrismaMeasurementRepository implements MeasurementRepository {
     return row ? toDomain(row) : null
   }
 
-  async findByDeviceInRange(deviceId: string, from: Date, to: Date): Promise<Measurement[]> {
+  async findByDeviceInRange(deviceId: string, from: Date, to: Date, limit: number): Promise<Measurement[]> {
     const rows = await this.prisma.measurement.findMany({
       where: { deviceId, timestamp: { gte: from, lte: to } },
-      orderBy: { timestamp: 'asc' }
+      orderBy: { timestamp: 'desc' },
+      take: limit
     })
-    return rows.map(toDomain)
+    return rows.map(toDomain).reverse()
   }
 
   async findLatestByDeviceGroupedByType(deviceId: string): Promise<Measurement[]> {

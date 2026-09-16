@@ -49,11 +49,23 @@ test('PrismaMeasurementRepository respects the MeasurementRepository contract', 
     const inRange = await measurements.findByDeviceInRange(
       device.id,
       new Date('2024-01-01T09:00:00Z'),
-      new Date('2024-01-01T10:30:00Z')
+      new Date('2024-01-01T10:30:00Z'),
+      500
     )
     assert.deepEqual(
       inRange.map((m) => m.id),
       [older.id]
+    )
+
+    const limited = await measurements.findByDeviceInRange(
+      device.id,
+      new Date('2024-01-01T09:00:00Z'),
+      new Date('2024-01-01T12:00:00Z'),
+      1
+    )
+    assert.deepEqual(
+      limited.map((m) => m.id),
+      [newer.id]
     )
 
     const latestByType = await measurements.findLatestByDeviceGroupedByType(device.id)

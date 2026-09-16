@@ -71,8 +71,12 @@ export class InMemoryMeasurementRepository implements MeasurementRepository {
     return matches.reduce((a, b) => (a.timestamp > b.timestamp ? a : b))
   }
 
-  async findByDeviceInRange(deviceId: string, from: Date, to: Date): Promise<Measurement[]> {
-    return this.measurements.filter((m) => m.deviceId === deviceId && m.timestamp >= from && m.timestamp <= to)
+  async findByDeviceInRange(deviceId: string, from: Date, to: Date, limit: number): Promise<Measurement[]> {
+    return this.measurements
+      .filter((m) => m.deviceId === deviceId && m.timestamp >= from && m.timestamp <= to)
+      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+      .slice(0, limit)
+      .reverse()
   }
 
   async findLatestByDeviceGroupedByType(deviceId: string): Promise<Measurement[]> {
