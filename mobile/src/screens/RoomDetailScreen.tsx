@@ -26,7 +26,9 @@ export default function RoomDetailScreen({ token, room, onBack }: RoomDetailScre
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
-  const [cachedAt, setCachedAt] = useState<string | null>(null)
+  // Date des données actuellement affichées, cf. RoomListScreen : dernier
+  // fetch réussi, ou date du cache tant qu'aucun fetch n'a encore abouti.
+  const [dataAsOf, setDataAsOf] = useState<string | null>(null)
   const isConnected = useNetworkStatus()
   const hasData = useRef(false)
   const cacheKey = `room:${room.id}:measurements`
@@ -39,7 +41,7 @@ export default function RoomDetailScreen({ token, room, onBack }: RoomDetailScre
         const fresh = await fetchLatestMeasurements(token, room.id)
         hasData.current = true
         setMeasurements(fresh)
-        setCachedAt(null)
+        setDataAsOf(new Date().toISOString())
         void writeCache(cacheKey, fresh)
       } catch (err) {
         // Idem : si on a déjà quelque chose à l'écran (frais ou en cache),
@@ -62,7 +64,7 @@ export default function RoomDetailScreen({ token, room, onBack }: RoomDetailScre
       if (cancelled || entry === null || hasData.current) return
       hasData.current = true
       setMeasurements(entry.data)
-      setCachedAt(entry.cachedAt)
+      setDataAsOf(entry.cachedAt)
       setLoading(false)
     })
     void load(false)
@@ -101,11 +103,10 @@ export default function RoomDetailScreen({ token, room, onBack }: RoomDetailScre
         </View>
       ) : (
         <>
+          {dataAsOf && <Text style={styles.syncInfo}>Données du {formatDateTime(dataAsOf)}</Text>}
           {isConnected === false && (
             <View style={styles.banner}>
-              <Text style={styles.bannerText}>
-                Téléphone hors ligne{cachedAt ? ` — dernières données du ${formatDateTime(cachedAt)}` : ''}
-              </Text>
+              <Text style={styles.bannerText}>Téléphone hors ligne — affichage des dernières données reçues</Text>
             </View>
           )}
           <ScrollView
@@ -160,7 +161,12 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: '700',
-    marginBottom: 16
+    marginBottom: 4
+  },
+  syncInfo: {
+    fontSize: 12,
+    color: '#888',
+    marginBottom: 12
   },
   banner: {
     backgroundColor: '#fef3c7',

@@ -17,7 +17,11 @@ export default function RoomListScreen({ token, onSelectRoom }: RoomListScreenPr
   const [rooms, setRooms] = useState<Room[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [cachedAt, setCachedAt] = useState<string | null>(null)
+  // Date des données actuellement affichées : celle du dernier fetch réussi,
+  // ou celle du cache tant qu'aucun fetch n'a encore abouti — toujours
+  // renseignée, pour qu'on sache d'un coup d'œil si ce qu'on regarde est à
+  // jour ou périmé, réseau coupé ou pas.
+  const [dataAsOf, setDataAsOf] = useState<string | null>(null)
   const isConnected = useNetworkStatus()
   const hasData = useRef(false)
 
@@ -28,7 +32,7 @@ export default function RoomListScreen({ token, onSelectRoom }: RoomListScreenPr
       const fresh = await fetchRooms(token)
       hasData.current = true
       setRooms(fresh)
-      setCachedAt(null)
+      setDataAsOf(new Date().toISOString())
       void writeCache(CACHE_KEY, fresh)
     } catch (err) {
       // Une requête ratée ne doit pas remplacer des salles déjà affichées
@@ -48,7 +52,7 @@ export default function RoomListScreen({ token, onSelectRoom }: RoomListScreenPr
       if (cancelled || entry === null || hasData.current) return
       hasData.current = true
       setRooms(entry.data)
-      setCachedAt(entry.cachedAt)
+      setDataAsOf(entry.cachedAt)
       setLoading(false)
     })
     void load()
@@ -89,11 +93,10 @@ export default function RoomListScreen({ token, onSelectRoom }: RoomListScreenPr
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Salles</Text>
+      {dataAsOf && <Text style={styles.syncInfo}>Données du {formatDateTime(dataAsOf)}</Text>}
       {isConnected === false && (
         <View style={styles.banner}>
-          <Text style={styles.bannerText}>
-            Téléphone hors ligne{cachedAt ? ` — dernières données du ${formatDateTime(cachedAt)}` : ''}
-          </Text>
+          <Text style={styles.bannerText}>Téléphone hors ligne — affichage des dernières données reçues</Text>
         </View>
       )}
       <FlatList
@@ -125,7 +128,12 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: '700',
-    marginBottom: 16
+    marginBottom: 4
+  },
+  syncInfo: {
+    fontSize: 12,
+    color: '#888',
+    marginBottom: 12
   },
   banner: {
     backgroundColor: '#fef3c7',
