@@ -31,16 +31,10 @@ export class InMemoryDeviceRepository implements DeviceRepository {
       name: input.name,
       type: input.type,
       roomId: input.roomId,
-      lastSeenAt: null,
       createdAt: new Date()
     }
     this.devices.set(device.id, device)
     return device
-  }
-
-  async updateLastSeen(id: string, lastSeenAt: Date): Promise<void> {
-    const device = this.devices.get(id)
-    if (device) device.lastSeenAt = lastSeenAt
   }
 
   seed(device: Device): void {
@@ -88,6 +82,12 @@ export class InMemoryMeasurementRepository implements MeasurementRepository {
       if (!current || m.timestamp > current.timestamp) latestByType.set(m.type, m)
     }
     return [...latestByType.values()]
+  }
+
+  async findLatestReceivedAt(deviceId: string): Promise<Date | null> {
+    const matches = this.measurements.filter((m) => m.deviceId === deviceId)
+    if (matches.length === 0) return null
+    return matches.reduce((a, b) => (a.receivedAt > b.receivedAt ? a : b)).receivedAt
   }
 }
 

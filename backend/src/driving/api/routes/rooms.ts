@@ -35,9 +35,10 @@ export default async function roomRoutes(fastify: FastifyInstance, deps: RoomRou
       devices.map(async (device) => {
         const latest = await deps.measurements.findLatestByDeviceGroupedByType(device.id)
         // Fraîcheur de cette mesure précise (son propre timestamp), à
-        // distinguer de la présence du device (lastSeenAt) exposée par
-        // GET /devices/:id : les deux peuvent diverger sur un device
-        // multi-métriques dont les capteurs n'envoient pas au même rythme.
+        // distinguer de la présence du device exposée par GET /devices/:id
+        // (dérivée de MAX(receivedAt) sur toutes ses mesures) : les deux
+        // peuvent diverger sur un device multi-métriques dont les capteurs
+        // n'envoient pas au même rythme.
         return latest.map((measurement) => ({
           ...measurement,
           deviceName: device.name,

@@ -3,9 +3,11 @@ import { loadConfig } from './shared/config'
 import { logger } from './shared/logger'
 import { createMqttTopics } from './shared/mqttTopics'
 import { createPrismaClient } from './infra/db/prismaClient'
+import { createRawPrismaClient } from './infra/db/raw/rawPrismaClient'
 import { PrismaRoomRepository } from './infra/db/PrismaRoomRepository'
 import { PrismaDeviceRepository } from './infra/db/PrismaDeviceRepository'
 import { PrismaMeasurementRepository } from './infra/db/PrismaMeasurementRepository'
+import { PrismaRawMeasurementRepository } from './infra/db/raw/PrismaRawMeasurementRepository'
 import { PrismaCommandRepository } from './infra/db/PrismaCommandRepository'
 import { PrismaUserRepository } from './infra/db/PrismaUserRepository'
 import { MqttCommandPublisher } from './infra/mqtt/MqttCommandPublisher'
@@ -35,16 +37,18 @@ export async function startApplication(): Promise<Application> {
   const topics = createMqttTopics(config.MQTT_TOPIC_PREFIX)
 
   const prisma = createPrismaClient()
+  const rawPrisma = createRawPrismaClient()
   const rooms = new PrismaRoomRepository(prisma)
   const devices = new PrismaDeviceRepository(prisma)
   const measurements = new PrismaMeasurementRepository(prisma)
+  const rawMeasurements = new PrismaRawMeasurementRepository(rawPrisma)
   const commands = new PrismaCommandRepository(prisma)
   const users = new PrismaUserRepository(prisma)
 
   const mqttClient = mqtt.connect(config.MQTT_URL)
   const publisher = new MqttCommandPublisher(mqttClient, topics)
 
-  const ingestion = new MeasurementIngestionService(measurements, devices, systemClock, logger, alertThresholds)
+  const ingestion = new MeasurementIngestionService(measurements, rawMeasurements, logger, alertThresholds)
   const commandService = new CommandService(commands, devices, publisher, systemClock)
 
   attachMqttSubscriptions(mqttClient, { topics, ingestion, commandService, logger })
@@ -66,6 +70,7 @@ export async function startApplication(): Promise<Application> {
     await api.close()
     mqttClient.end()
     await prisma.$disconnect()
+    await rawPrisma.$disconnect()
   }
 
   return { api, mqttClient, prisma, stop }

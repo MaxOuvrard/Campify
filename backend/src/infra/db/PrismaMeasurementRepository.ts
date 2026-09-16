@@ -62,4 +62,13 @@ export class PrismaMeasurementRepository implements MeasurementRepository {
     })
     return rows.map(toDomain)
   }
+
+  async findLatestReceivedAt(deviceId: string): Promise<Date | null> {
+    const row = await this.prisma.measurement.findFirst({
+      where: { deviceId },
+      orderBy: { receivedAt: 'desc' },
+      select: { receivedAt: true }
+    })
+    return row?.receivedAt ?? null
+  }
 }

@@ -21,10 +21,11 @@ export default async function deviceRoutes(fastify: FastifyInstance, deps: Devic
     const { id } = request.params as { id: string }
     const device = await deps.devices.findById(id)
     if (device === null) return reply.code(404).send({ error: 'not found' })
-    // Présence observée du device : a-t-il envoyé une donnée récente (quel
-    // que soit son type), indépendamment de la fraîcheur d'une mesure
-    // précise. Voir domain/services/freshness.ts.
-    return { ...device, present: isFresh(device.lastSeenAt, new Date(), deps.staleThresholdMs) }
+    // Présence observée du device : dérivée de la dernière mesure reçue
+    // (tous types confondus), pas d'un champ mutable dupliqué sur Device —
+    // voir domain/services/freshness.ts.
+    const lastReceivedAt = await deps.measurements.findLatestReceivedAt(id)
+    return { ...device, present: isFresh(lastReceivedAt, new Date(), deps.staleThresholdMs) }
   })
 
   fastify.get('/devices/:id/measurements', { preHandler: fastify.authenticate }, async (request) => {

@@ -33,10 +33,13 @@ model Device {
   type         String
   room         Room          @relation(fields: [roomId], references: [id])
   roomId       String
-  lastSeenAt   DateTime?
   createdAt    DateTime      @default(now())
   measurements Measurement[]
   commands     Command[]
+
+  // Pas de champ "dernière vue" mutable : la présence d'un device se
+  // dérive de MAX(receivedAt) sur ses mesures (MeasurementRepository), déjà
+  // historisées — pas de duplication d'état. Voir domain/services/freshness.ts.
 
   @@index([roomId])
 }

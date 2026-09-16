@@ -281,12 +281,12 @@ test('GET /devices/:id reports present:false when the device has never been seen
   assert.equal((response.json() as { present: boolean }).present, false)
 })
 
-test('GET /devices/:id reports present:true when lastSeenAt is within the stale threshold', async (t) => {
-  const { app, device, devices } = await buildTestApp()
+test('GET /devices/:id reports present:true when the device has a recent measurement', async (t) => {
+  const { app, device, measurements } = await buildTestApp()
   t.after(() => app.close())
   const token = await loginAs(app, 'viewer@test.local', 'viewer-pass')
 
-  await devices.updateLastSeen(device.id, new Date())
+  await measurements.create({ deviceId: device.id, type: 'temperature', value: 21, timestamp: new Date() })
 
   const response = await app.inject({ method: 'GET', url: `/devices/${device.id}`, headers: authHeader(token) })
 

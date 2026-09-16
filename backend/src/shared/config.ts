@@ -4,6 +4,8 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().default(3000),
   DATABASE_URL: z.string(),
+  // Base brute (TimescaleDB) : landing zone des mesures avant dedup/fraîcheur — voir ADR 0005.
+  RAW_MEASUREMENTS_DATABASE_URL: z.string(),
   MQTT_URL: z.string().default('mqtt://localhost:1883'),
   MQTT_TOPIC_PREFIX: z.string().default('campus'),
   JWT_SECRET: z.string(),

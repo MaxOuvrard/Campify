@@ -1,0 +1,28 @@
+// Base brute (TimescaleDB) — voir ADR 0005. Reçoit toute mesure entrante
+// telle quelle, sans filtre (y compris doublons/retards), avant que
+// MeasurementIngestionService n'applique dedup/fraîcheur et n'écrive dans
+// la base vérifiée (prisma/schema.prisma) que ce qui est retenu. Pas de
+// relation vers Device : pure zone d'atterrissage, volume potentiellement
+// très élevé, pour absorber l'ingestion sans dépendre du schéma relationnel.
+datasource db {
+  provider = "postgresql"
+  url      = env("RAW_MEASUREMENTS_DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/raw-client"
+}
+
+model RawMeasurement {
+  id         String   @id @default(uuid())
+  deviceId   String
+  type       String
+  value      Float
+  unit       String?
+  timestamp  DateTime
+  messageId  String?
+  receivedAt DateTime @default(now())
+
+  @@index([deviceId, timestamp])
+}

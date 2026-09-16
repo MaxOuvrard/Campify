@@ -10,6 +10,20 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
 
+  # Base brute (landing zone) pour les mesures : reçoit tout, sans filtre,
+  # avant que le domaine ne décide quoi retenir dans postgres/campify. Voir
+  # ADR 0005.
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_USER: campify
+      POSTGRES_PASSWORD: campify
+      POSTGRES_DB: campify_raw
+    ports:
+      - '5433:5432'
+    volumes:
+      - timescale-data:/var/lib/postgresql/data
+
   mosquitto:
     image: eclipse-mosquitto:2
     ports:
@@ -23,11 +37,14 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql://campify:campify@postgres:5432/campify?schema=public
+      RAW_MEASUREMENTS_DATABASE_URL: postgresql://campify:campify@timescaledb:5432/campify_raw?schema=public
     ports:
       - '3000:3000'
     depends_on:
       - postgres
+      - timescaledb
       - mosquitto
 
 volumes:
   postgres-data:
+  timescale-data:

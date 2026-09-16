@@ -73,6 +73,12 @@ test('PrismaMeasurementRepository respects the MeasurementRepository contract', 
       latestByType.map((m) => m.type).sort(),
       ['co2', 'temperature']
     )
+
+    const latestReceivedAt = await measurements.findLatestReceivedAt(device.id)
+    assert.deepStrictEqual(latestReceivedAt, co2.receivedAt)
+
+    const otherDevice = await devices.create({ name: 'other-device', type: 'temperature', roomId: room.id })
+    assert.equal(await measurements.findLatestReceivedAt(otherDevice.id), null)
   } finally {
     await prisma.measurement.deleteMany({ where: { device: { roomId: room.id } } })
     await prisma.device.deleteMany({ where: { roomId: room.id } })

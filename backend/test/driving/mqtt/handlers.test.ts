@@ -5,7 +5,7 @@ import { createMqttTopics } from '../../../src/shared/mqttTopics'
 import { MeasurementIngestionService } from '../../../src/domain/services/MeasurementIngestionService'
 import { CommandService } from '../../../src/domain/services/CommandService'
 import { InMemoryDeviceRepository, InMemoryMeasurementRepository, InMemoryCommandRepository } from '../../fakes/inMemoryRepositories'
-import { FixedClock, FakeLogger, FakeMqttPublisher } from '../../fakes/testDoubles'
+import { FixedClock, FakeLogger, FakeMqttPublisher, FakeRawMeasurementRepository } from '../../fakes/testDoubles'
 import type { MeasurementRepository } from '../../../src/domain/ports/MeasurementRepository'
 
 const topics = createMqttTopics('campus')
@@ -14,8 +14,9 @@ test('measurement handler validates, ingests and persists every metric of a well
   const devices = new InMemoryDeviceRepository()
   const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
   const measurements = new InMemoryMeasurementRepository()
+  const rawMeasurements = new FakeRawMeasurementRepository()
   const logger = new FakeLogger()
-  const ingestion = new MeasurementIngestionService(measurements, devices, new FixedClock(new Date()), logger)
+  const ingestion = new MeasurementIngestionService(measurements, rawMeasurements, logger)
 
   const handler = createMeasurementHandler({ topics, ingestion, logger })
   const topic = `campus/v1/devices/${device.id}/telemetry`
@@ -38,14 +39,16 @@ test('measurement handler validates, ingests and persists every metric of a well
   )
   assert.ok(measurements.measurements.every((m) => m.deviceId === device.id))
   assert.ok(measurements.measurements.every((m) => m.messageId === 'abc-1'))
+  assert.equal(rawMeasurements.recorded.length, 2)
 })
 
 test('measurement handler drops an exact MQTT retransmission (same message_id) as a duplicate', async () => {
   const devices = new InMemoryDeviceRepository()
   const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
   const measurements = new InMemoryMeasurementRepository()
+  const rawMeasurements = new FakeRawMeasurementRepository()
   const logger = new FakeLogger()
-  const ingestion = new MeasurementIngestionService(measurements, devices, new FixedClock(new Date()), logger)
+  const ingestion = new MeasurementIngestionService(measurements, rawMeasurements, logger)
 
   const handler = createMeasurementHandler({ topics, ingestion, logger })
   const topic = `campus/v1/devices/${device.id}/telemetry`
@@ -69,8 +72,9 @@ test('measurement handler logs and drops an invalid payload', async () => {
   const devices = new InMemoryDeviceRepository()
   const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
   const measurements = new InMemoryMeasurementRepository()
+  const rawMeasurements = new FakeRawMeasurementRepository()
   const logger = new FakeLogger()
-  const ingestion = new MeasurementIngestionService(measurements, devices, new FixedClock(new Date()), logger)
+  const ingestion = new MeasurementIngestionService(measurements, rawMeasurements, logger)
 
   const handler = createMeasurementHandler({ topics, ingestion, logger })
   const topic = `campus/v1/devices/${device.id}/telemetry`
@@ -92,9 +96,11 @@ test('measurement handler logs a warning and keeps processing when ingestion thr
       throw new Error('Foreign key constraint violated')
     },
     findByDeviceInRange: async () => [],
-    findLatestByDeviceGroupedByType: async () => []
+    findLatestByDeviceGroupedByType: async () => [],
+    findLatestReceivedAt: async () => null
   }
-  const ingestion = new MeasurementIngestionService(throwingMeasurements, devices, new FixedClock(new Date()), logger)
+  const rawMeasurements = new FakeRawMeasurementRepository()
+  const ingestion = new MeasurementIngestionService(throwingMeasurements, rawMeasurements, logger)
 
   const handler = createMeasurementHandler({ topics, ingestion, logger })
   const topic = `campus/v1/devices/${device.id}/telemetry`

@@ -18,7 +18,6 @@ test('PrismaDeviceRepository respects the DeviceRepository contract', { skip: !p
   try {
     const created = await devices.create({ name: 'test-device', type: 'temperature', roomId: room.id })
     assert.equal(created.type, 'temperature')
-    assert.equal(created.lastSeenAt, null)
 
     const found = await devices.findById(created.id)
     assert.equal(found?.id, created.id)
@@ -28,11 +27,6 @@ test('PrismaDeviceRepository respects the DeviceRepository contract', { skip: !p
 
     const all = await devices.findAll()
     assert.ok(all.some((d) => d.id === created.id))
-
-    const seenAt = new Date('2024-01-01T00:00:00Z')
-    await devices.updateLastSeen(created.id, seenAt)
-    const updated = await devices.findById(created.id)
-    assert.deepStrictEqual(updated?.lastSeenAt, seenAt)
   } finally {
     await prisma.device.deleteMany({ where: { roomId: room.id } })
     await prisma.room.deleteMany({ where: { id: room.id } })

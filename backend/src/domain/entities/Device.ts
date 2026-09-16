@@ -5,6 +5,5 @@ export interface Device {
   // du kit IoT, pas encore figé. Voir docs/decisions/0004-contrat-mqtt-placeholder.md
   type: string
   roomId: string
-  lastSeenAt: Date | null
   createdAt: Date
 }

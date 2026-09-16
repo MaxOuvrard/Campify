@@ -11,5 +11,4 @@ export interface DeviceRepository {
   findById(id: string): Promise<Device | null>
   findByRoom(roomId: string): Promise<Device[]>
   create(input: NewDevice): Promise<Device>
-  updateLastSeen(id: string, lastSeenAt: Date): Promise<void>
 }
