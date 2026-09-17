@@ -18,6 +18,7 @@ import { DeviceAssociationService } from './domain/services/deviceAssociation'
 import { attachMqttSubscriptions } from './driving/mqtt/client'
 import { buildApiServer } from './driving/api/server'
 import type { AlertThreshold } from './domain/services/alerts'
+import type { PlausibilityRange } from './domain/services/plausibility'
 import type { FastifyInstance } from 'fastify'
 import type { MqttClient } from 'mqtt'
 import type { PrismaClient } from '@prisma/client'
@@ -25,6 +26,14 @@ import type { PrismaClient } from '@prisma/client'
 // PLACEHOLDER : seuils d'alerte réels à définir une fois le contrat de
 // mesures du kit connu (types de capteurs, unités, bornes).
 const alertThresholds: AlertThreshold[] = []
+
+// Bornes de plausibilité physique par type de mesure (kit démo : capteur
+// intérieur température/CO2). Une valeur hors bornes est rejetée avant
+// d'atteindre la base vérifiée — voir domain/services/plausibility.ts.
+const plausibilityRanges: PlausibilityRange[] = [
+  { type: 'temperature', min: -40, max: 85 },
+  { type: 'co2', min: 0, max: 40000 }
+]
 
 export interface Application {
   api: FastifyInstance
@@ -49,7 +58,7 @@ export async function startApplication(): Promise<Application> {
   const mqttClient = mqtt.connect(config.MQTT_URL)
   const publisher = new MqttCommandPublisher(mqttClient, topics)
 
-  const ingestion = new MeasurementIngestionService(measurements, rawMeasurements, logger, alertThresholds)
+  const ingestion = new MeasurementIngestionService(measurements, rawMeasurements, logger, alertThresholds, plausibilityRanges)
   const commandService = new CommandService(commands, devices, publisher, systemClock)
   const deviceAssociationService = new DeviceAssociationService(devices, rooms)
 

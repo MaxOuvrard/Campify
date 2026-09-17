@@ -100,6 +100,37 @@ test('rejects ingestion when the raw store cannot be read back after writing', a
   assert.ok(logger.entries.some((e) => e.level === 'warn' && e.msg === 'raw measurement not found on read-back'))
 })
 
+test('rejects an implausible value but still records it in the raw store', async () => {
+  const devices = new InMemoryDeviceRepository()
+  const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
+  const measurements = new InMemoryMeasurementRepository()
+  const rawMeasurements = new FakeRawMeasurementRepository()
+  const logger = new FakeLogger()
+  const service = new MeasurementIngestionService(measurements, rawMeasurements, logger, [], [{ type: 'temperature', min: -40, max: 85 }])
+
+  const result = await service.ingest({ deviceId: device.id, type: 'temperature', value: 999, timestamp: new Date('2024-01-01T00:00:00Z') })
+
+  assert.deepStrictEqual(result, { accepted: false, reason: 'implausible_value' })
+  assert.equal(measurements.measurements.length, 0)
+  assert.equal(rawMeasurements.recorded.length, 1)
+  assert.ok(logger.entries.some((e) => e.level === 'warn' && e.msg === 'measurement rejected' && e.meta?.reason === 'implausible_value'))
+})
+
+test('does not let an implausible value overwrite the current latest measurement', async () => {
+  const devices = new InMemoryDeviceRepository()
+  const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
+  const measurements = new InMemoryMeasurementRepository()
+  const rawMeasurements = new FakeRawMeasurementRepository()
+  const logger = new FakeLogger()
+  const service = new MeasurementIngestionService(measurements, rawMeasurements, logger, [], [{ type: 'temperature', min: -40, max: 85 }])
+
+  await service.ingest({ deviceId: device.id, type: 'temperature', value: 21, timestamp: new Date('2024-01-01T00:00:00Z') })
+  await service.ingest({ deviceId: device.id, type: 'temperature', value: 999, timestamp: new Date('2024-01-01T00:01:00Z') })
+
+  const latest = await measurements.findLatestByDevice(device.id, 'temperature')
+  assert.equal(latest?.value, 21)
+})
+
 test('the verified measurement reflects what was read back from the raw store, not the original input', async () => {
   const devices = new InMemoryDeviceRepository()
   const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })

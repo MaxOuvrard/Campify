@@ -4,8 +4,9 @@ import { Logger } from '../ports/Logger'
 import { Measurement, NewMeasurement } from '../entities/Measurement'
 import { decideMeasurement, MeasurementRejectionReason } from './dedup'
 import { evaluateAlerts, AlertThreshold } from './alerts'
+import { isPlausibleValue, PlausibilityRange } from './plausibility'
 
-export type IngestionRejectionReason = MeasurementRejectionReason | 'raw_unavailable'
+export type IngestionRejectionReason = MeasurementRejectionReason | 'raw_unavailable' | 'implausible_value'
 
 export interface MeasurementIngestionResult {
   accepted: boolean
@@ -31,13 +32,24 @@ export class MeasurementIngestionService {
     private readonly measurements: MeasurementRepository,
     private readonly rawMeasurements: RawMeasurementRepository,
     private readonly logger: Logger,
-    private readonly thresholds: AlertThreshold[] = []
+    private readonly thresholds: AlertThreshold[] = [],
+    private readonly plausibilityRanges: PlausibilityRange[] = []
   ) {}
 
   async ingest(input: NewMeasurement): Promise<MeasurementIngestionResult> {
     const raw = await this.recordAndReadBack(input)
     if (raw === null) {
       return { accepted: false, reason: 'raw_unavailable' }
+    }
+
+    if (!isPlausibleValue(raw.type, raw.value, this.plausibilityRanges)) {
+      this.logger.warn('measurement rejected', {
+        deviceId: raw.deviceId,
+        type: raw.type,
+        value: raw.value,
+        reason: 'implausible_value'
+      })
+      return { accepted: false, reason: 'implausible_value' }
     }
 
     const latest = await this.measurements.findLatestByDevice(raw.deviceId, raw.type)
