@@ -106,6 +106,11 @@ export default function RoomListScreen({ token, onSelectRoom }: RoomListScreenPr
         renderItem={({ item }) => (
           <TouchableOpacity style={styles.row} onPress={() => onSelectRoom(item)}>
             <Text style={styles.roomName}>{item.name}</Text>
+            {item.hasSilentDevice && (
+              <View style={styles.silentBadge}>
+                <Text style={styles.silentBadgeText}>⚠️ Capteur silencieux</Text>
+              </View>
+            )}
           </TouchableOpacity>
         )}
       />
@@ -148,12 +153,26 @@ const styles = StyleSheet.create({
     textAlign: 'center'
   },
   row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#eee'
   },
   roomName: {
     fontSize: 17
+  },
+  silentBadge: {
+    backgroundColor: '#fdf2f2',
+    borderRadius: 6,
+    paddingVertical: 2,
+    paddingHorizontal: 8
+  },
+  silentBadgeText: {
+    color: '#c0392b',
+    fontSize: 12,
+    fontWeight: '600'
   },
   empty: {
     color: '#666',

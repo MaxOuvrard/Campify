@@ -141,6 +141,47 @@ test('GET /rooms returns the seeded room for an authenticated viewer', async (t)
   assert.ok(body.some((r) => r.id === room.id))
 })
 
+test('GET /rooms reports hasSilentDevice:false when the room only has fresh measurements', async (t) => {
+  const { app, room, device, measurements } = await buildTestApp()
+  t.after(() => app.close())
+  const token = await loginAs(app, 'viewer@test.local', 'viewer-pass')
+
+  await measurements.create({ deviceId: device.id, type: 'temperature', value: 21, timestamp: new Date() })
+
+  const response = await app.inject({ method: 'GET', url: '/rooms', headers: authHeader(token) })
+
+  assert.equal(response.statusCode, 200)
+  const body = response.json() as Array<{ id: string; hasSilentDevice: boolean }>
+  assert.equal(body.find((r) => r.id === room.id)?.hasSilentDevice, false)
+})
+
+test('GET /rooms reports hasSilentDevice:true as soon as one measurement of the room is stale', async (t) => {
+  const { app, room, device, measurements } = await buildTestApp()
+  t.after(() => app.close())
+  const token = await loginAs(app, 'viewer@test.local', 'viewer-pass')
+
+  await measurements.create({ deviceId: device.id, type: 'temperature', value: 21, timestamp: new Date('2024-01-01T00:00:00Z') })
+
+  const response = await app.inject({ method: 'GET', url: '/rooms', headers: authHeader(token) })
+
+  assert.equal(response.statusCode, 200)
+  const body = response.json() as Array<{ id: string; hasSilentDevice: boolean }>
+  assert.equal(body.find((r) => r.id === room.id)?.hasSilentDevice, true)
+})
+
+test('GET /rooms reports hasSilentDevice:false for a room with no device/measurement yet', async (t) => {
+  const { app, rooms } = await buildTestApp()
+  t.after(() => app.close())
+  const token = await loginAs(app, 'viewer@test.local', 'viewer-pass')
+  const emptyRoom = await rooms.create('Salle vide')
+
+  const response = await app.inject({ method: 'GET', url: '/rooms', headers: authHeader(token) })
+
+  assert.equal(response.statusCode, 200)
+  const body = response.json() as Array<{ id: string; hasSilentDevice: boolean }>
+  assert.equal(body.find((r) => r.id === emptyRoom.id)?.hasSilentDevice, false)
+})
+
 test('GET /rooms/:id/devices returns the devices of that room', async (t) => {
   const { app, room, device } = await buildTestApp()
   t.after(() => app.close())

@@ -14,9 +14,35 @@ export interface RoomRoutesDeps {
   staleThresholdMs: number
 }
 
+// Un device peut avoir plusieurs métriques (température, CO2...) qui ne se
+// périment pas forcément au même rythme : la salle est signalée dès qu'au
+// moins une métrique d'un de ses devices est périmée, cf. le badge "Capteur
+// silencieux" de RoomDetailScreen sur cette même règle de fraîcheur.
+async function roomHasSilentDevice(
+  roomId: string,
+  deps: Pick<RoomRoutesDeps, 'devices' | 'measurements' | 'staleThresholdMs'>
+): Promise<boolean> {
+  const devices = await deps.devices.findByRoom(roomId)
+  const now = new Date()
+
+  for (const device of devices) {
+    const latest = await deps.measurements.findLatestByDeviceGroupedByType(device.id)
+    if (latest.some((measurement) => !isFresh(measurement.timestamp, now, deps.staleThresholdMs))) {
+      return true
+    }
+  }
+  return false
+}
+
 export default async function roomRoutes(fastify: FastifyInstance, deps: RoomRoutesDeps): Promise<void> {
   fastify.get('/rooms', { preHandler: fastify.authenticate }, async () => {
-    return deps.rooms.findAll()
+    const rooms = await deps.rooms.findAll()
+    return Promise.all(
+      rooms.map(async (room) => ({
+        ...room,
+        hasSilentDevice: await roomHasSilentDevice(room.id, deps)
+      }))
+    )
   })
 
   fastify.get('/rooms/:id/devices', { preHandler: fastify.authenticate }, async (request) => {

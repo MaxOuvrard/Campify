@@ -29,7 +29,7 @@ jest.mock('../../api/client', () => {
 
 const associateDevice = client.associateDevice as jest.Mock
 
-const room: Room = { id: 'room-1', name: 'Salle A', createdAt: '2026-01-01T00:00:00.000Z' }
+const room: Room = { id: 'room-1', name: 'Salle A', createdAt: '2026-01-01T00:00:00.000Z', hasSilentDevice: false }
 
 function device(overrides: Partial<AssociatedDevice> = {}): AssociatedDevice {
   return { id: 'sensor-001', name: 'Capteur 1', type: 'temperature', roomId: room.id, createdAt: '2026-01-01T00:00:00.000Z', ...overrides }

@@ -42,6 +42,8 @@ export interface Room {
   id: string
   name: string
   createdAt: string
+  /** Au moins une mesure périmée parmi les devices de la salle — voir domain/services/freshness.ts. */
+  hasSilentDevice: boolean
 }
 
 export interface LatestMeasurement {
