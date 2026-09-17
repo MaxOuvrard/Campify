@@ -153,6 +153,36 @@ coupure/reprise du broker : QoS 0 n'est pas rejoué par le broker après une
 reconnexion (messages perdus pendant la coupure), QoS 1 l'est (au prix de
 doublons possibles, absorbés par la dédup).
 
+## Logs structurés et corrélation
+
+Tous les logs sont émis en JSON sur stdout (Pino), avec un champ `service`
+commun à toute ligne (`shared/logger.ts`) — nécessaire pour filtrer par
+service une fois une stack de logs centralisée en place. Convention posée
+sur le chemin d'ingestion des mesures (`MeasurementIngestionService`,
+`driving/mqtt/handlers.ts`), à réutiliser pour toute nouvelle catégorie
+d'événement :
+
+- `eventType` : catégorie de l'événement (`measurement_ingestion`,
+  `mqtt_connection`, `command_ack`, …).
+- `eventId` : identifiant de corrélation d'une mesure de sa réception à son
+  traitement — le `message_id` MQTT quand il existe (déjà utilisé par la
+  dédup, voir ADR 0005), sinon un id généré. Permet de retrouver toutes les
+  lignes relatives à une même mesure, y compris sur un rejet.
+- `status` (`ingested`/`rejected`/`error`/…) et `reason` (motif du rejet ou
+  de l'erreur) : présents sur toute issue, succès inclus — avant ce
+  changement, seuls les rejets étaient journalisés (voir
+  `docs/preuves/isolation-devices-paralleles.md`, partie backend), rendant
+  invisible le fonctionnement normal dans les logs.
+- `deviceId`, `topic` : présents quand l'information existe à l'endroit du
+  log (le domaine ne connaît pas de topic MQTT, seul `driving/mqtt` en a
+  un).
+
+Chaque issue n'est journalisée qu'une seule fois, à la source qui la
+décide : `MeasurementIngestionService` pour tout ce qui concerne
+l'ingestion (y compris les rejets), `driving/mqtt/handlers.ts` seulement
+pour ce qu'il est seul à voir (topic non reconnu, JSON/schéma invalide
+avant même d'atteindre le domaine, exception inattendue).
+
 ## Cache mobile
 
 L'app mobile garde en local (AsyncStorage, `mobile/src/storage/cache.ts`)

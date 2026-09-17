@@ -65,7 +65,10 @@ test('measurement handler drops an exact MQTT retransmission (same message_id) a
   await handler(topic, payload)
 
   assert.equal(measurements.measurements.length, 1)
-  assert.ok(logger.entries.some((e) => e.level === 'info' && e.meta?.reason === 'duplicate'))
+  // Le rejet est journalisé une seule fois, par MeasurementIngestionService
+  // (source unique de vérité sur l'issue d'une ingestion) — pas par le
+  // handler MQTT, qui ne fait que relayer.
+  assert.ok(logger.entries.some((e) => e.level === 'warn' && e.meta?.reason === 'duplicate' && e.meta?.eventType === 'measurement_ingestion'))
 })
 
 test('measurement handler logs and drops an invalid payload', async () => {

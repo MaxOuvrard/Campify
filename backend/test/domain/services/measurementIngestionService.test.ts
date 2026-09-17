@@ -20,6 +20,39 @@ test('ingests the first measurement and makes it the device latest received meas
   assert.deepStrictEqual(lastReceivedAt, result.measurement?.receivedAt)
 })
 
+test('logs a successful ingestion with the MQTT messageId as correlation eventId', async () => {
+  const devices = new InMemoryDeviceRepository()
+  const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
+  const measurements = new InMemoryMeasurementRepository()
+  const rawMeasurements = new FakeRawMeasurementRepository()
+  const logger = new FakeLogger()
+  const service = new MeasurementIngestionService(measurements, rawMeasurements, logger)
+
+  await service.ingest({ deviceId: device.id, type: 'temperature', value: 21, timestamp: new Date('2024-01-01T00:00:00Z'), messageId: 'msg-42' })
+
+  const entry = logger.entries.find((e) => e.level === 'info' && e.msg === 'measurement ingested')
+  assert.ok(entry)
+  assert.equal(entry?.meta?.eventType, 'measurement_ingestion')
+  assert.equal(entry?.meta?.eventId, 'msg-42')
+  assert.equal(entry?.meta?.status, 'ingested')
+})
+
+test('generates an eventId when no messageId is provided, and reuses it across the rejection log', async () => {
+  const devices = new InMemoryDeviceRepository()
+  const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
+  const measurements = new InMemoryMeasurementRepository()
+  const rawMeasurements = new FakeRawMeasurementRepository()
+  const logger = new FakeLogger()
+  const service = new MeasurementIngestionService(measurements, rawMeasurements, logger, [], [{ type: 'temperature', min: -40, max: 85 }])
+
+  await service.ingest({ deviceId: device.id, type: 'temperature', value: 999, timestamp: new Date('2024-01-01T00:00:00Z') })
+
+  const entry = logger.entries.find((e) => e.level === 'warn' && e.msg === 'measurement rejected')
+  assert.ok(entry)
+  assert.equal(typeof entry?.meta?.eventId, 'string')
+  assert.ok((entry?.meta?.eventId as string).length > 0)
+})
+
 test('rejects a duplicate measurement and logs a warning', async () => {
   const devices = new InMemoryDeviceRepository()
   const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
