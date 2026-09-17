@@ -55,7 +55,15 @@ export async function startApplication(): Promise<Application> {
   const commands = new PrismaCommandRepository(prisma)
   const users = new PrismaUserRepository(prisma)
 
-  const mqttClient = mqtt.connect(config.MQTT_URL)
+  // Session persistante (clientId stable + clean:false) : sans ça, le
+  // broker ne mémorise aucun abonnement pendant que le backend est
+  // déconnecté, et ne peut donc rien mettre en attente pour lui — même à
+  // QoS 1, les mesures publiées pendant une coupure backend sont perdues
+  // (constaté expérimentalement, voir docs/J3.md, scénario "backend
+  // indisponible"). Un seul backend actif à la fois : une deuxième
+  // instance avec le même clientId ferait déconnecter la première (limite
+  // acceptée pour une architecture mono-instance).
+  const mqttClient = mqtt.connect(config.MQTT_URL, { clientId: 'campify-backend', clean: false })
   const publisher = new MqttCommandPublisher(mqttClient, topics)
 
   const ingestion = new MeasurementIngestionService(measurements, rawMeasurements, logger, alertThresholds, plausibilityRanges)

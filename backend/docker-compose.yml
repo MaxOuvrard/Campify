@@ -40,6 +40,12 @@ services:
     environment:
       DATABASE_URL: postgresql://campify:campify@postgres:5432/campify?schema=public
       RAW_MEASUREMENTS_DATABASE_URL: postgresql://campify:campify@timescaledb:5432/campify_raw?schema=public
+      # `localhost` dans .env vise l'hôte (usage `npm run dev` hors
+      # conteneur) — depuis le conteneur backend, `localhost` se désigne
+      # lui-même, pas mosquitto. Comme pour DATABASE_URL ci-dessus, on
+      # pointe vers le nom de service Docker. Mot de passe = celui généré
+      # en local pour l'utilisateur "backend" (README, section Démarrage).
+      MQTT_URL: mqtt://backend:changeme-local-only@mosquitto:1883
       # JSON forcé quel que soit NODE_ENV : c'est ce que Promtail/Loki
       # savent parser — voir shared/logger.ts et observability/.
       LOG_FORMAT: json

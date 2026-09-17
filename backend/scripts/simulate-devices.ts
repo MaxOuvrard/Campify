@@ -169,8 +169,16 @@ function main(): void {
     const client = mqtt.connect(opts.broker, { username: device.id, password: opts.password })
     clients.push(client)
 
+    // mqtt.js réémet 'connect' à chaque reconnexion (pas seulement la
+    // première) — sans ce garde, une coupure/reprise du broker démarrerait
+    // un second intervalle de publication en plus du premier (jamais
+    // arrêté), doublant silencieusement le débit. Un seul `runDevice` par
+    // device, quel que soit le nombre de reconnexions.
+    let started = false
     client.on('connect', () => {
       console.log(`[${device.id}] connecté`)
+      if (started) return
+      started = true
       stopFns.push(runDevice(client, device, opts))
     })
 

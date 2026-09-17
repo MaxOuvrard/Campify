@@ -71,5 +71,9 @@ dist
 # jamais les mêmes d'un environnement à l'autre)
 mosquitto.passwd
 
+# override docker-compose local (ex: port déjà pris par un autre projet
+# sur la machine) — jamais commité, spécifique à un poste
+docker-compose.override.yml
+
 # prisma
 prisma/generated
