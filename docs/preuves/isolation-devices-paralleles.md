@@ -141,6 +141,32 @@ Remise en route ensuite (`incident sensor-002 resume`, `incident
 sensor-003 resume`) et confirmation que les 3 devices republient à nouveau
 — aucun état résiduel laissé sur l'infra partagée.
 
+## Preuve visuelle — logs Grafana filtrés par device
+
+Le gap constaté plus haut (aucun log sur une ingestion réussie) a depuis
+été corrigé (`MeasurementIngestionService.ts` journalise désormais chaque
+ingestion, réussie ou rejetée, avec un `eventId` de corrélation — voir
+`docs/J3.md`). Le panel Grafana "Événements d'un device"
+(`{compose_service="backend"} | json | deviceId="$deviceId"`) permet
+maintenant de filtrer directement, sans le contournement par pause décrit
+ci-dessus.
+
+**Filtre `Device ID = sensor-001`** — toutes les lignes retournées portent
+`"deviceId":"sensor-001"`, aucune exception :
+
+![Logs Grafana filtrés sur sensor-001](../images/sensor1.png)
+
+**Filtre `Device ID = sensor-002`** — même vérification, changement de
+filtre uniquement, tout le contenu bascule sur l'autre device :
+
+![Logs Grafana filtrés sur sensor-002](../images/sensor2.png)
+
+Les préfixes de `message_id` (le `boot_id`, voir plus haut) restent
+distincts et stables entre les deux captures (`c964ffc9...` pour
+sensor-001, `...7264a7fbe6297687dbc4243...` pour sensor-002) — confirme
+que ce sont deux flux réellement indépendants, pas un simple label qui
+change sur une même source.
+
 ## Preuve visuelle — deux salles, deux états, au même instant
 
 Capture réelle sur l'app mobile, les deux écrans ouverts à quelques
