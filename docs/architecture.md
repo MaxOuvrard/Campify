@@ -149,9 +149,17 @@ moins une fois) correspond à ce que `domain/services/dedup.ts` a été conçu
 pour absorber (retransmission avec même `messageId` — voir
 [ADR 0005](decisions/0005-dedup-ordre-et-separation-base-brute-verifiee.md)).
 Basculer à 0 pour le scénario J3 de comparaison QoS 0 vs QoS 1 sur
-coupure/reprise du broker : QoS 0 n'est pas rejoué par le broker après une
-reconnexion (messages perdus pendant la coupure), QoS 1 l'est (au prix de
-doublons possibles, absorbés par la dédup).
+coupure/reprise du broker.
+
+**QoS seul ne suffit pas** à éviter la perte pendant une coupure
+*backend* (par opposition à une coupure broker) : sans session
+persistante, le broker ne mémorise aucun abonnement pour un client
+déconnecté et ne met donc rien en attente pour lui, quel que soit le QoS
+de publication. `composition.ts` connecte le backend avec un `clientId`
+stable et `clean: false` précisément pour ça — voir
+[ADR 0010](decisions/0010-session-mqtt-persistante.md), qui documente la
+perte constatée avant ce réglage et sa disparition après, preuve à
+l'appui.
 
 ## Logs structurés et corrélation
 
@@ -224,6 +232,7 @@ inversement. Détail et justification :
 | Plausibilité des mesures | `domain/services/plausibility.ts` | Bornes physiques par type de métrique, rejet avant la base vérifiée (trace conservée en base brute) |
 | Logs | Pino (JSON), `eventType`/`eventId`/`status`/`reason` | Corrélation d'une mesure de sa réception à son traitement |
 | Centralisation des logs | Loki + Promtail + Grafana (`docker-compose.yml`) | Dashboard provisionné, filtres par device/rejets/doublons/retard/MQTT — voir [ADR 0009](decisions/0009-stack-logs-centralises.md) |
+| Session MQTT backend | `clientId` stable + `clean: false` | Sans ça, QoS 1 seul ne suffit pas à survivre à une coupure backend — voir [ADR 0010](decisions/0010-session-mqtt-persistante.md) |
 | Tests | `node:test` + fakes en mémoire (backend), Jest + `jest-expo` (mobile) | Unitaires sur `domain/services`, intégration par adapter (Prisma, handler MQTT), coupure/retour réseau et reprise d'app côté mobile |
 | Infra | Docker Compose (Postgres, TimescaleDB, Mosquitto, Loki/Promtail/Grafana) | Un seul `docker compose up -d`, voir `backend/README.md` |
 
