@@ -1,0 +1,23 @@
+# ACL du broker local (docker-compose). Objectif : qu'un client ne puisse
+# jamais publier sur le topic de télémétrie d'un device qui n'est pas le
+# sien — voir docs/decisions/0008-identite-devices-authentification-mqtt.md.
+# `allow_anonymous false` (mosquitto.conf) empêche déjà toute connexion
+# sans identifiants ; ce fichier restreint ensuite ce que chaque identité
+# a le droit de lire/écrire une fois connectée.
+
+# Backend : lit la télémétrie et les acquittements de tous les devices,
+# publie les commandes. N'a jamais besoin d'écrire sur un topic de
+# télémétrie (ce n'est pas un device).
+user backend
+topic read campus/v1/devices/+/telemetry
+topic read campus/devices/+/commands/ack
+topic write campus/devices/+/commands
+
+# Devices : chaque device s'authentifie avec un identifiant MQTT égal à son
+# deviceId (ex. utilisateur "sensor-001"). `%u` est remplacé par cet
+# identifiant : un device ne peut publier que sur SA propre télémétrie, et
+# ne lire/écrire que SES propres commandes/acquittements — jamais ceux
+# d'un autre device.
+pattern write campus/v1/devices/%u/telemetry
+pattern read campus/devices/%u/commands
+pattern write campus/devices/%u/commands/ack

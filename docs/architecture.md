@@ -112,6 +112,28 @@ L'historique exposé par `GET /devices/:id/measurements` est borné
 jours, 500 points max, pour qu'un client ne puisse jamais déclencher une
 requête de stockage illimitée.
 
+## Identité des devices et sécurité MQTT
+
+Un `deviceId` (ex. `sensor-001`) est résolu **depuis le topic MQTT**
+(`{prefix}/v1/devices/{deviceId}/telemetry`), jamais depuis le payload : les
+champs `device_id`/`room_id` du payload sont redondants avec le topic et
+ne sont pas exploités (voir [ADR 0004](decisions/0004-contrat-mqtt-placeholder.md)).
+Ce choix n'a de sens que si le topic lui-même fait foi — c'est-à-dire que
+seul le vrai device peut publier sur son propre topic. Le broker local
+(`backend/docker-compose.yml`) l'impose désormais : connexion authentifiée
+obligatoire (`mosquitto.conf`) et ACL par device (`mosquitto.acl`)
+restreignant chaque identité à sa propre télémétrie/ses propres commandes.
+Le broker de démonstration du kit (VPS partagé) reste hors de notre
+contrôle et constitue un risque résiduel documenté. Détail et alternatives
+écartées (mTLS, signature applicative) : [ADR 0008](decisions/0008-identite-devices-authentification-mqtt.md).
+
+Toute mesure entrante passe ensuite par la validation de structure (Zod,
+`driving/mqtt/schemas.ts`) puis par une borne de plausibilité physique par
+type de métrique (`domain/services/plausibility.ts`, ex. température entre
+-40 et 85°C) avant d'atteindre la base vérifiée — une valeur hors bornes ou
+non finie (NaN/Infinity) est rejetée (`implausible_value`) mais reste
+tracée en base brute, au même titre qu'un doublon ou un retard.
+
 ## Cache mobile
 
 L'app mobile garde en local (AsyncStorage, `mobile/src/storage/cache.ts`)
@@ -143,6 +165,8 @@ inversement. Détail et justification :
 | Dédup / ordre des mesures | `domain/services/dedup.ts` | `messageId` MQTT en priorité, sinon timestamp — voir [ADR 0005](decisions/0005-dedup-ordre-et-separation-base-brute-verifiee.md) |
 | Cache mobile | AsyncStorage | Dernière réponse connue par clé + date, best-effort — voir [ADR 0006](decisions/0006-cache-mobile-et-affichage-de-la-fraicheur.md) |
 | Auth & droits | JWT (`@fastify/jwt`) + RBAC | Distingue droits de consultation et droits de commande |
+| Auth MQTT | mosquitto password_file + ACL par device (broker local) | Un device ne peut publier que sur sa propre télémétrie — voir [ADR 0008](decisions/0008-identite-devices-authentification-mqtt.md) |
+| Plausibilité des mesures | `domain/services/plausibility.ts` | Bornes physiques par type de métrique, rejet avant la base vérifiée (trace conservée en base brute) |
 | Logs | Pino | Logs structurés pour le diagnostic |
 | Tests | `node:test` + fakes en mémoire (backend), Jest + `jest-expo` (mobile) | Unitaires sur `domain/services`, intégration par adapter (Prisma, handler MQTT), coupure/retour réseau et reprise d'app côté mobile |
 | Infra | _à définir_ | |

@@ -14,11 +14,25 @@ API Fastify (TypeScript) en architecture hexagonale simplifiée. Voir
 ```bash
 npm install
 cp .env.example .env   # ajuster si besoin
+
+# Identifiants du mosquitto local — voir ADR 0008 : le broker refuse les
+# connexions anonymes et applique une ACL (mosquitto.acl), donc ce fichier
+# doit exister avant de démarrer Mosquitto. Le mot de passe doit
+# correspondre à celui mis dans MQTT_URL (.env).
+docker run --rm -v "$(pwd):/mosquitto" eclipse-mosquitto:2 \
+  mosquitto_passwd -b -c /mosquitto/mosquitto.passwd backend changeme-local-only
+
 docker compose up -d   # Postgres (5432) + Mosquitto (1883)
 npx prisma migrate dev # crée le schéma en base
 npx prisma db seed     # salles/devices de démo + utilisateur demo@campify.local
 npm run dev
 ```
+
+Pour tester le scénario "usurpation d'un device" (publier manuellement sur le
+topic d'un autre capteur), ajouter un identifiant par device avec `-b` (sans
+`-c`, qui écraserait le fichier) : `mosquitto_passwd -b mosquitto.passwd
+sensor-001 <mot-de-passe>`. L'ACL n'autorise chaque identité qu'à publier
+sur sa propre télémétrie (`pattern write .../%u/telemetry`).
 
 L'API est servie sur [http://localhost:3000](http://localhost:3000).
 

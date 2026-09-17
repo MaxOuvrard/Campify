@@ -67,5 +67,9 @@ dist
 # environment
 .env
 
+# identifiants MQTT du broker local (générés en local, voir README —
+# jamais les mêmes d'un environnement à l'autre)
+mosquitto.passwd
+
 # prisma
 prisma/generated
