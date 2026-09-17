@@ -62,7 +62,7 @@ export async function startApplication(): Promise<Application> {
   const commandService = new CommandService(commands, devices, publisher, systemClock)
   const deviceAssociationService = new DeviceAssociationService(devices, rooms)
 
-  attachMqttSubscriptions(mqttClient, { topics, ingestion, commandService, logger })
+  attachMqttSubscriptions(mqttClient, { topics, ingestion, commandService, logger, qos: config.MQTT_QOS })
 
   const api = buildApiServer({
     jwtSecret: config.JWT_SECRET,

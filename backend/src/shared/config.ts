@@ -8,6 +8,13 @@ const envSchema = z.object({
   RAW_MEASUREMENTS_DATABASE_URL: z.string(),
   MQTT_URL: z.string().default('mqtt://localhost:1883'),
   MQTT_TOPIC_PREFIX: z.string().default('campus'),
+  // QoS de souscription : 1 par défaut (au moins une fois, ce que la dédup
+  // par messageId est justement conçue pour absorber — voir ADR 0005).
+  // Basculer à 0 pour le scénario J3 de comparaison QoS 0 vs QoS 1.
+  MQTT_QOS: z
+    .enum(['0', '1'])
+    .default('1')
+    .transform((v): 0 | 1 => (v === '1' ? 1 : 0)),
   JWT_SECRET: z.string(),
   DEVICE_STALE_THRESHOLD_MS: z.coerce.number().default(5 * 60 * 1000),
   LOG_LEVEL: z.string().default('info')

@@ -134,6 +134,25 @@ type de métrique (`domain/services/plausibility.ts`, ex. température entre
 non finie (NaN/Infinity) est rejetée (`implausible_value`) mais reste
 tracée en base brute, au même titre qu'un doublon ou un retard.
 
+## Connexion MQTT : QoS et visibilité sur les coupures
+
+`mqtt.js` reconnecte automatiquement en cas de coupure du broker
+(`reconnectPeriod` par défaut), mais sans le signaler nulle part, "coupure
+puis reprise" n'est qu'une hypothèse invérifiable. `driving/mqtt/client.ts`
+journalise chaque transition (`eventType: 'mqtt_connection'`, `status`
+parmi `connected`/`reconnecting`/`closed`/`offline`/`error`), pour pouvoir
+filtrer ces événements dans les logs centralisés (scénario J3 "broker
+indisponible").
+
+QoS de souscription configurable (`MQTT_QOS`, 1 par défaut) : QoS 1 (au
+moins une fois) correspond à ce que `domain/services/dedup.ts` a été conçu
+pour absorber (retransmission avec même `messageId` — voir
+[ADR 0005](decisions/0005-dedup-ordre-et-separation-base-brute-verifiee.md)).
+Basculer à 0 pour le scénario J3 de comparaison QoS 0 vs QoS 1 sur
+coupure/reprise du broker : QoS 0 n'est pas rejoué par le broker après une
+reconnexion (messages perdus pendant la coupure), QoS 1 l'est (au prix de
+doublons possibles, absorbés par la dédup).
+
 ## Cache mobile
 
 L'app mobile garde en local (AsyncStorage, `mobile/src/storage/cache.ts`)
