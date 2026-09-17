@@ -42,4 +42,9 @@ export class PrismaDeviceRepository implements DeviceRepository {
     const row = await this.prisma.device.create({ data: input })
     return toDomain(row)
   }
+
+  async updateRoom(deviceId: string, roomId: string): Promise<Device> {
+    const row = await this.prisma.device.update({ where: { id: deviceId }, data: { roomId } })
+    return toDomain(row)
+  }
 }

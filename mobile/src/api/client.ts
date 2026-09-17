@@ -81,3 +81,45 @@ export function fetchRooms(token: string): Promise<Room[]> {
 export function fetchLatestMeasurements(token: string, roomId: string): Promise<LatestMeasurement[]> {
   return authorizedGet<LatestMeasurement[]>(`/rooms/${roomId}/measurements/latest`, token)
 }
+
+export interface AssociatedDevice {
+  id: string
+  name: string
+  type: string
+  roomId: string
+  createdAt: string
+}
+
+/**
+ * Messages adaptés au parcours de scan : un code au mauvais format (400) et
+ * un code bien formé mais inconnu (404) sont deux échecs distincts que
+ * l'écran de scan doit pouvoir afficher différemment.
+ */
+export async function associateDevice(token: string, roomId: string, identifier: string): Promise<AssociatedDevice> {
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE_URL}/rooms/${roomId}/devices/associate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ identifier })
+    })
+  } catch {
+    throw new ApiError('Impossible de joindre le serveur')
+  }
+
+  if (!response.ok) {
+    const message =
+      response.status === 401
+        ? 'Session expirée, reconnecte-toi'
+        : response.status === 403
+          ? "Tu n'as pas les droits pour associer un équipement"
+          : response.status === 404
+            ? 'Aucun équipement ne correspond à ce code'
+            : response.status === 400
+              ? "Ce n'est pas un QR code Campify valide"
+              : 'Erreur serveur'
+    throw new ApiError(message, response.status)
+  }
+
+  return (await response.json()) as AssociatedDevice
+}

@@ -20,6 +20,14 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Campify a besoin de la caméra pour scanner le QR code d'un équipement."
+        }
+      ]
+    ]
   }
 }

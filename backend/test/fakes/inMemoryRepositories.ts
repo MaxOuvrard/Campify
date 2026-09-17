@@ -37,6 +37,14 @@ export class InMemoryDeviceRepository implements DeviceRepository {
     return device
   }
 
+  async updateRoom(deviceId: string, roomId: string): Promise<Device> {
+    const device = this.devices.get(deviceId)
+    if (!device) throw new Error(`Device ${deviceId} not found`)
+    const updated = { ...device, roomId }
+    this.devices.set(deviceId, updated)
+    return updated
+  }
+
   seed(device: Device): void {
     this.devices.set(device.id, device)
   }

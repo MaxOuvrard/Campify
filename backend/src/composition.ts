@@ -14,6 +14,7 @@ import { MqttCommandPublisher } from './infra/mqtt/MqttCommandPublisher'
 import { systemClock } from './domain/ports/Clock'
 import { MeasurementIngestionService } from './domain/services/MeasurementIngestionService'
 import { CommandService } from './domain/services/CommandService'
+import { DeviceAssociationService } from './domain/services/deviceAssociation'
 import { attachMqttSubscriptions } from './driving/mqtt/client'
 import { buildApiServer } from './driving/api/server'
 import type { AlertThreshold } from './domain/services/alerts'
@@ -50,6 +51,7 @@ export async function startApplication(): Promise<Application> {
 
   const ingestion = new MeasurementIngestionService(measurements, rawMeasurements, logger, alertThresholds)
   const commandService = new CommandService(commands, devices, publisher, systemClock)
+  const deviceAssociationService = new DeviceAssociationService(devices, rooms)
 
   attachMqttSubscriptions(mqttClient, { topics, ingestion, commandService, logger })
 
@@ -61,6 +63,7 @@ export async function startApplication(): Promise<Application> {
     measurements,
     commandService,
     commands,
+    deviceAssociationService,
     staleThresholdMs: config.DEVICE_STALE_THRESHOLD_MS
   })
 

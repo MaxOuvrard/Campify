@@ -15,6 +15,7 @@ test('PrismaDeviceRepository respects the DeviceRepository contract', { skip: !p
   const rooms = new PrismaRoomRepository(prisma)
 
   const room = await rooms.create(`test-room-${randomUUID()}`)
+  const otherRoom = await rooms.create(`test-room-${randomUUID()}`)
   try {
     const created = await devices.create({ name: 'test-device', type: 'temperature', roomId: room.id })
     assert.equal(created.type, 'temperature')
@@ -27,9 +28,12 @@ test('PrismaDeviceRepository respects the DeviceRepository contract', { skip: !p
 
     const all = await devices.findAll()
     assert.ok(all.some((d) => d.id === created.id))
+
+    const moved = await devices.updateRoom(created.id, otherRoom.id)
+    assert.equal(moved.roomId, otherRoom.id)
   } finally {
-    await prisma.device.deleteMany({ where: { roomId: room.id } })
-    await prisma.room.deleteMany({ where: { id: room.id } })
+    await prisma.device.deleteMany({ where: { roomId: { in: [room.id, otherRoom.id] } } })
+    await prisma.room.deleteMany({ where: { id: { in: [room.id, otherRoom.id] } } })
     await prisma.$disconnect()
   }
 })

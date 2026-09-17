@@ -10,6 +10,7 @@ interface RoomDetailScreenProps {
   token: string
   room: Room
   onBack: () => void
+  onScanDevice: () => void
 }
 
 const METRIC_LABELS: Record<string, string> = {
@@ -21,7 +22,34 @@ function metricLabel(type: string): string {
   return METRIC_LABELS[type] ?? type
 }
 
-export default function RoomDetailScreen({ token, room, onBack }: RoomDetailScreenProps) {
+interface DeviceGroup {
+  deviceId: string
+  deviceName: string
+  measurements: LatestMeasurement[]
+}
+
+// Un capteur peut remonter plusieurs métriques (température, CO2...) : elles
+// sont affichées ensemble dans une seule carte par capteur plutôt qu'éclatées
+// en une carte par métrique, pour qu'on sache d'un coup d'œil quel capteur
+// remonte quoi.
+function groupByDevice(measurements: LatestMeasurement[]): DeviceGroup[] {
+  const groups = new Map<string, DeviceGroup>()
+  for (const measurement of measurements) {
+    const existing = groups.get(measurement.deviceId)
+    if (existing) {
+      existing.measurements.push(measurement)
+    } else {
+      groups.set(measurement.deviceId, {
+        deviceId: measurement.deviceId,
+        deviceName: measurement.deviceName,
+        measurements: [measurement]
+      })
+    }
+  }
+  return [...groups.values()].sort((a, b) => a.deviceName.localeCompare(b.deviceName))
+}
+
+export default function RoomDetailScreen({ token, room, onBack, onScanDevice }: RoomDetailScreenProps) {
   const [measurements, setMeasurements] = useState<LatestMeasurement[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -85,9 +113,14 @@ export default function RoomDetailScreen({ token, room, onBack }: RoomDetailScre
 
   return (
     <View style={styles.container}>
-      <TouchableOpacity onPress={onBack}>
-        <Text style={styles.back}>{'< Salles'}</Text>
-      </TouchableOpacity>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={onBack}>
+          <Text style={styles.back}>{'< Salles'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={onScanDevice}>
+          <Text style={styles.scanLink}>Scanner un équipement</Text>
+        </TouchableOpacity>
+      </View>
       <Text style={styles.title}>{room.name}</Text>
 
       {loading ? (
@@ -116,23 +149,34 @@ export default function RoomDetailScreen({ token, room, onBack }: RoomDetailScre
             {measurements && measurements.length === 0 ? (
               <Text style={styles.empty}>Aucune mesure reçue pour l'instant pour cette salle.</Text>
             ) : (
-              measurements?.map((measurement) => (
-                <View key={measurement.type} style={[styles.card, !measurement.fresh && styles.cardStale]}>
-                  <View style={styles.cardHeader}>
-                    <Text style={styles.metricLabel}>{metricLabel(measurement.type)}</Text>
-                    {!measurement.fresh && (
-                      <View style={styles.staleBadge}>
-                        <Text style={styles.staleBadgeText}>Capteur silencieux</Text>
+              measurements &&
+              groupByDevice(measurements).map((group) => (
+                <View key={group.deviceId} style={styles.card}>
+                  <Text style={styles.deviceName}>{group.deviceName}</Text>
+                  <View style={styles.metricsRow}>
+                    {group.measurements.map((measurement, index) => (
+                      <View
+                        key={measurement.type}
+                        style={[styles.metricColumn, index > 0 && styles.metricColumnDivider, !measurement.fresh && styles.metricColumnStale]}
+                      >
+                        <View style={styles.cardHeader}>
+                          <Text style={styles.metricLabel}>{metricLabel(measurement.type)}</Text>
+                        </View>
+                        <Text style={styles.metricValue}>
+                          {measurement.value}
+                          {measurement.unit ? ` ${measurement.unit}` : ''}
+                        </Text>
+                        <Text style={styles.metricDate}>
+                          {measurement.fresh ? 'Mesuré le' : 'Dernière mesure connue le'} {formatDateTime(measurement.timestamp)}
+                        </Text>
+                        {!measurement.fresh && (
+                          <View style={styles.staleBadge}>
+                            <Text style={styles.staleBadgeText}>Capteur silencieux</Text>
+                          </View>
+                        )}
                       </View>
-                    )}
+                    ))}
                   </View>
-                  <Text style={styles.metricValue}>
-                    {measurement.value}
-                    {measurement.unit ? ` ${measurement.unit}` : ''}
-                  </Text>
-                  <Text style={styles.metricDate}>
-                    {measurement.fresh ? 'Mesuré le' : 'Dernière mesure connue le'} {formatDateTime(measurement.timestamp)}
-                  </Text>
                 </View>
               ))
             )}
@@ -155,9 +199,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center'
   },
-  back: {
-    color: '#2563eb',
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 8
+  },
+  back: {
+    color: '#2563eb'
+  },
+  scanLink: {
+    color: '#2563eb',
+    fontWeight: '600'
   },
   title: {
     fontSize: 24,
@@ -189,9 +242,30 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 12
   },
-  cardStale: {
-    backgroundColor: '#fdf2f2',
-    opacity: 0.85
+  deviceName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#333',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 12
+  },
+  metricsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap'
+  },
+  metricColumn: {
+    flexGrow: 1,
+    flexBasis: '45%'
+  },
+  metricColumnDivider: {
+    borderLeftWidth: 1,
+    borderLeftColor: '#e2e5e9',
+    paddingLeft: 16,
+    marginLeft: 16
+  },
+  metricColumnStale: {
+    opacity: 0.75
   },
   cardHeader: {
     flexDirection: 'row',
@@ -206,7 +280,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#c0392b',
     borderRadius: 6,
     paddingVertical: 2,
-    paddingHorizontal: 8
+    paddingHorizontal: 8,
+    marginTop: 6,
+    alignSelf: 'flex-start'
   },
   staleBadgeText: {
     color: '#fff',

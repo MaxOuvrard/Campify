@@ -7,9 +7,10 @@ import authRoutes, { AuthRoutesDeps } from './routes/auth'
 import roomRoutes, { RoomRoutesDeps } from './routes/rooms'
 import deviceRoutes, { DeviceRoutesDeps } from './routes/devices'
 import commandRoutes, { CommandRoutesDeps } from './routes/commands'
+import associationRoutes, { AssociationRoutesDeps } from './routes/associations'
 import { NotFoundError, ValidationError, ConflictError } from '../../shared/errors'
 
-export interface ApiDeps extends AuthRoutesDeps, RoomRoutesDeps, DeviceRoutesDeps, CommandRoutesDeps {
+export interface ApiDeps extends AuthRoutesDeps, RoomRoutesDeps, DeviceRoutesDeps, CommandRoutesDeps, AssociationRoutesDeps {
   jwtSecret: string
 }
 
@@ -24,6 +25,7 @@ export function buildApiServer(deps: ApiDeps): FastifyInstance {
   void fastify.register(roomRoutes, deps)
   void fastify.register(deviceRoutes, deps)
   void fastify.register(commandRoutes, deps)
+  void fastify.register(associationRoutes, deps)
 
   fastify.setErrorHandler((error, request, reply) => {
     if (error instanceof ZodError) {

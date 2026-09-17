@@ -10,10 +10,14 @@ import bcrypt from 'bcryptjs'
  * MeasurementIngestionService ne crée pas de device à la volée, il faut
  * donc que la ligne existe déjà en base pour que l'ingestion réussisse.
  */
+// Le nom du device ne doit jamais encoder sa salle d'origine : un capteur
+// peut être réassigné à une autre salle par scan QR (voir
+// docs/decisions/0007-association-qr-et-reaffectation.md), un nom du type
+// "Capteur salle 203" deviendrait alors trompeur.
 const ROOMS = [
-  { name: 'Salle 203', device: { id: 'sensor-001', name: 'Capteur salle 203' } },
-  { name: 'Salle 204', device: { id: 'sensor-002', name: 'Capteur salle 204' } },
-  { name: 'Salle 205', device: { id: 'sensor-003', name: 'Capteur salle 205' } }
+  { name: 'Salle 203', device: { id: 'sensor-001', name: 'Capteur sensor-001' } },
+  { name: 'Salle 204', device: { id: 'sensor-002', name: 'Capteur sensor-002' } },
+  { name: 'Salle 205', device: { id: 'sensor-003', name: 'Capteur sensor-003' } }
 ]
 
 const DEMO_USER = {

@@ -71,7 +71,7 @@ describe('RoomDetailScreen — coupure réseau, retour réseau, reprise de l’a
     const netInfo = mockNetInfoListener()
     mockAppStateListener('active')
 
-    const view = await render(<RoomDetailScreen token="t" room={room} onBack={() => {}} />)
+    const view = await render(<RoomDetailScreen token="t" room={room} onBack={() => {}} onScanDevice={() => {}} />)
     await view.findByText('21 °C')
 
     await netInfo.emit({ isConnected: false, isInternetReachable: false })
@@ -87,7 +87,7 @@ describe('RoomDetailScreen — coupure réseau, retour réseau, reprise de l’a
     const netInfo = mockNetInfoListener()
     mockAppStateListener('active')
 
-    const view = await render(<RoomDetailScreen token="t" room={room} onBack={() => {}} />)
+    const view = await render(<RoomDetailScreen token="t" room={room} onBack={() => {}} onScanDevice={() => {}} />)
     await view.findByText('21 °C')
 
     await netInfo.emit({ isConnected: false, isInternetReachable: false })
@@ -106,7 +106,7 @@ describe('RoomDetailScreen — coupure réseau, retour réseau, reprise de l’a
     mockNetInfoListener()
     const appState = mockAppStateListener('background')
 
-    const view = await render(<RoomDetailScreen token="t" room={room} onBack={() => {}} />)
+    const view = await render(<RoomDetailScreen token="t" room={room} onBack={() => {}} onScanDevice={() => {}} />)
     await view.findByText('21 °C')
 
     fetchLatestMeasurements.mockResolvedValueOnce([measurement({ value: 19 })])
@@ -121,7 +121,7 @@ describe('RoomDetailScreen — coupure réseau, retour réseau, reprise de l’a
     mockNetInfoListener()
     mockAppStateListener('active')
 
-    const view = await render(<RoomDetailScreen token="t" room={room} onBack={() => {}} />)
+    const view = await render(<RoomDetailScreen token="t" room={room} onBack={() => {}} onScanDevice={() => {}} />)
 
     await view.findByText('Capteur silencieux')
     expect(view.getByText('21 °C')).toBeTruthy()

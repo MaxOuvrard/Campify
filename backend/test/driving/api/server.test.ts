@@ -3,6 +3,7 @@ import * as assert from 'node:assert'
 import bcrypt from 'bcryptjs'
 import { buildApiServer } from '../../../src/driving/api/server'
 import { CommandService } from '../../../src/domain/services/CommandService'
+import { DeviceAssociationService } from '../../../src/domain/services/deviceAssociation'
 import {
   InMemoryRoomRepository,
   InMemoryDeviceRepository,
@@ -21,6 +22,7 @@ async function buildTestApp() {
   const publisher = new FakeMqttPublisher()
   const clock = new FixedClock(new Date('2024-01-01T00:00:00Z'))
   const commandService = new CommandService(commands, devices, publisher, clock)
+  const deviceAssociationService = new DeviceAssociationService(devices, rooms)
 
   const room = await rooms.create('Salle Test')
   const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: room.id })
@@ -48,6 +50,7 @@ async function buildTestApp() {
     measurements,
     commandService,
     commands,
+    deviceAssociationService,
     staleThresholdMs: 5 * 60 * 1000
   })
 
@@ -423,4 +426,66 @@ test('GET /commands/:id returns the command once it has been dispatched', async 
 
   assert.equal(response.statusCode, 200)
   assert.equal((response.json() as { id: string }).id, commandId)
+})
+
+test('POST /rooms/:id/devices/associate is forbidden for a VIEWER', async (t) => {
+  const { app, room, device } = await buildTestApp()
+  t.after(() => app.close())
+  const token = await loginAs(app, 'viewer@test.local', 'viewer-pass')
+
+  const response = await app.inject({
+    method: 'POST',
+    url: `/rooms/${room.id}/devices/associate`,
+    headers: authHeader(token),
+    payload: { identifier: `campus-device:v1:${device.id}` }
+  })
+
+  assert.equal(response.statusCode, 403)
+})
+
+test('POST /rooms/:id/devices/associate associates the scanned device to the room for an ADMIN', async (t) => {
+  const { app, rooms, device } = await buildTestApp()
+  t.after(() => app.close())
+  const token = await loginAs(app, 'admin@test.local', 'admin-pass')
+  const targetRoom = await rooms.create('Salle 2')
+
+  const response = await app.inject({
+    method: 'POST',
+    url: `/rooms/${targetRoom.id}/devices/associate`,
+    headers: authHeader(token),
+    payload: { identifier: `campus-device:v1:${device.id}` }
+  })
+
+  assert.equal(response.statusCode, 200)
+  assert.equal((response.json() as { roomId: string }).roomId, targetRoom.id)
+})
+
+test('POST /rooms/:id/devices/associate returns 400 for an invalid QR format', async (t) => {
+  const { app, room } = await buildTestApp()
+  t.after(() => app.close())
+  const token = await loginAs(app, 'admin@test.local', 'admin-pass')
+
+  const response = await app.inject({
+    method: 'POST',
+    url: `/rooms/${room.id}/devices/associate`,
+    headers: authHeader(token),
+    payload: { identifier: 'ceci-n-est-pas-un-objet' }
+  })
+
+  assert.equal(response.statusCode, 400)
+})
+
+test('POST /rooms/:id/devices/associate returns 404 for a well-formed but unknown device', async (t) => {
+  const { app, room } = await buildTestApp()
+  t.after(() => app.close())
+  const token = await loginAs(app, 'admin@test.local', 'admin-pass')
+
+  const response = await app.inject({
+    method: 'POST',
+    url: `/rooms/${room.id}/devices/associate`,
+    headers: authHeader(token),
+    payload: { identifier: 'campus-device:v1:sensor-999' }
+  })
+
+  assert.equal(response.statusCode, 404)
 })
