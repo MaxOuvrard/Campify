@@ -1,0 +1,46 @@
+# Scrape les logs de TOUS les conteneurs du docker-compose via le socket
+# Docker (découverte automatique, pas de config par service à maintenir).
+# Seuls les logs du service "backend" sont au format JSON (voir
+# shared/logger.ts, LOG_FORMAT=json) ; le pipeline n'extrait des champs en
+# labels QUE pour ce service — les autres (postgres, mosquitto…) restent
+# du texte brut, cherchable mais pas structuré.
+#
+# Labels volontairement limités à `level`/`eventType`/`status` (faible
+# cardinalité, valeurs bornées) : `deviceId`/`eventId`/`reason`/`topic`
+# restent dans le corps du log, filtrables via `| json` dans les requêtes
+# LogQL, jamais promus en label — un label à cardinalité illimitée (un
+# eventId est quasi unique par message) ferait exploser l'index Loki.
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: 'container'
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: 'compose_service'
+    pipeline_stages:
+      - match:
+          selector: '{compose_service="backend"}'
+          stages:
+            - json:
+                expressions:
+                  level: level
+                  eventType: eventType
+                  status: status
+            - labels:
+                level:
+                eventType:
+                status:

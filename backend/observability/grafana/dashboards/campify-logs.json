@@ -1,0 +1,112 @@
+{
+  "title": "Campify — Logs backend (J3)",
+  "uid": "campify-j3-logs",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "deviceId",
+        "type": "textbox",
+        "label": "Device ID",
+        "current": { "text": "sensor-001", "value": "sensor-001" },
+        "query": "sensor-001"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Événements d'un device ($deviceId)",
+      "description": "Toutes les lignes de log (ingestion, rejets, alertes) mentionnant ce deviceId, tous statuts confondus.",
+      "type": "logs",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{compose_service=\"backend\"} | json | deviceId=\"$deviceId\"",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Messages rejetés",
+      "description": "Toute mesure ou message rejeté, quel que soit le motif (invalid_json, invalid_schema, implausible_value, duplicate, late, raw_unavailable, unrecognized_topic).",
+      "type": "logs",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{compose_service=\"backend\", status=\"rejected\"}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Doublons détectés",
+      "description": "Mesures rejetées comme doublon exact (même messageId MQTT ou même timestamp) — voir ADR 0005.",
+      "type": "logs",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{compose_service=\"backend\", status=\"rejected\"} | json | reason=\"duplicate\"",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Données anciennes / en retard",
+      "description": "Mesures rejetées car antérieures à la dernière mesure connue du device+type (n'ont jamais remplacé l'état courant) — voir ADR 0005.",
+      "type": "logs",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{compose_service=\"backend\", status=\"rejected\"} | json | reason=\"late\"",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Connexion MQTT (coupures, erreurs, reprises)",
+      "description": "Transitions de connexion au broker : connected/reconnecting/closed/offline/error — voir driving/mqtt/client.ts.",
+      "type": "logs",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{compose_service=\"backend\", eventType=\"mqtt_connection\"}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Tous les logs backend",
+      "description": "Flux brut, sans filtre — point de départ pour explorer un incident non couvert par les panneaux ci-dessus.",
+      "type": "logs",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{compose_service=\"backend\"}",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

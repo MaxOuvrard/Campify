@@ -156,9 +156,8 @@ doublons possibles, absorbés par la dédup).
 ## Logs structurés et corrélation
 
 Tous les logs sont émis en JSON sur stdout (Pino), avec un champ `service`
-commun à toute ligne (`shared/logger.ts`) — nécessaire pour filtrer par
-service une fois une stack de logs centralisée en place. Convention posée
-sur le chemin d'ingestion des mesures (`MeasurementIngestionService`,
+commun à toute ligne (`shared/logger.ts`). Convention posée sur le chemin
+d'ingestion des mesures (`MeasurementIngestionService`,
 `driving/mqtt/handlers.ts`), à réutiliser pour toute nouvelle catégorie
 d'événement :
 
@@ -182,6 +181,13 @@ décide : `MeasurementIngestionService` pour tout ce qui concerne
 l'ingestion (y compris les rejets), `driving/mqtt/handlers.ts` seulement
 pour ce qu'il est seul à voir (topic non reconnu, JSON/schéma invalide
 avant même d'atteindre le domaine, exception inattendue).
+
+Ces logs sont centralisés et consultables via une stack Loki + Promtail +
+Grafana, intégrée à `docker-compose.yml` (`backend/observability/`,
+démarre avec le reste) — dashboard provisionné avec les filtres par
+device, messages rejetés, doublons, données anciennes et coupures MQTT.
+Détail et alternatives écartées (ELK, plugin Docker Loki) :
+[ADR 0009](decisions/0009-stack-logs-centralises.md).
 
 ## Cache mobile
 
@@ -216,9 +222,10 @@ inversement. Détail et justification :
 | Auth & droits | JWT (`@fastify/jwt`) + RBAC | Distingue droits de consultation et droits de commande |
 | Auth MQTT | mosquitto password_file + ACL par device (broker local) | Un device ne peut publier que sur sa propre télémétrie — voir [ADR 0008](decisions/0008-identite-devices-authentification-mqtt.md) |
 | Plausibilité des mesures | `domain/services/plausibility.ts` | Bornes physiques par type de métrique, rejet avant la base vérifiée (trace conservée en base brute) |
-| Logs | Pino | Logs structurés pour le diagnostic |
+| Logs | Pino (JSON), `eventType`/`eventId`/`status`/`reason` | Corrélation d'une mesure de sa réception à son traitement |
+| Centralisation des logs | Loki + Promtail + Grafana (`docker-compose.yml`) | Dashboard provisionné, filtres par device/rejets/doublons/retard/MQTT — voir [ADR 0009](decisions/0009-stack-logs-centralises.md) |
 | Tests | `node:test` + fakes en mémoire (backend), Jest + `jest-expo` (mobile) | Unitaires sur `domain/services`, intégration par adapter (Prisma, handler MQTT), coupure/retour réseau et reprise d'app côté mobile |
-| Infra | _à définir_ | |
+| Infra | Docker Compose (Postgres, TimescaleDB, Mosquitto, Loki/Promtail/Grafana) | Un seul `docker compose up -d`, voir `backend/README.md` |
 
 Patterns explicitement écartés (CQRS, event sourcing, DDD strict,
 microservices) et leur justification :

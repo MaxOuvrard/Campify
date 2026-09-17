@@ -22,7 +22,7 @@ cp .env.example .env   # ajuster si besoin
 docker run --rm -v "$(pwd):/mosquitto" eclipse-mosquitto:2 \
   mosquitto_passwd -b -c /mosquitto/mosquitto.passwd backend changeme-local-only
 
-docker compose up -d   # Postgres (5432) + Mosquitto (1883)
+docker compose up -d   # Postgres (5432), Mosquitto (1883), Loki/Promtail/Grafana (3001)
 npx prisma migrate dev # crée le schéma en base
 npx prisma db seed     # salles/devices de démo + utilisateur demo@campify.local
 npm run dev
@@ -35,6 +35,15 @@ sensor-001 <mot-de-passe>`. L'ACL n'autorise chaque identité qu'à publier
 sur sa propre télémétrie (`pattern write .../%u/telemetry`).
 
 L'API est servie sur [http://localhost:3000](http://localhost:3000).
+
+Les logs sont centralisés et consultables sur Grafana
+([http://localhost:3001](http://localhost:3001), pas de login) — dashboard
+"Campify — Logs backend (J3)" provisionné automatiquement. **Seuls les
+logs du conteneur `backend`** y apparaissent (Promtail scrute les
+conteneurs Docker, pas un `npm run dev` lancé hors conteneur) : pour les
+voir dans Grafana, démarrer aussi le backend via Docker Compose (« Alternative :
+tout via Docker Compose » plus bas) plutôt qu'avec `npm run dev`. Détail :
+[backend/observability/README.md](observability/README.md).
 
 ### Voir de vraies mesures (broker de démo du kit)
 

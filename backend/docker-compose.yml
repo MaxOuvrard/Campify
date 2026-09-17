@@ -40,6 +40,9 @@ services:
     environment:
       DATABASE_URL: postgresql://campify:campify@postgres:5432/campify?schema=public
       RAW_MEASUREMENTS_DATABASE_URL: postgresql://campify:campify@timescaledb:5432/campify_raw?schema=public
+      # JSON forcé quel que soit NODE_ENV : c'est ce que Promtail/Loki
+      # savent parser — voir shared/logger.ts et observability/.
+      LOG_FORMAT: json
     ports:
       - '3000:3000'
     depends_on:
@@ -47,6 +50,46 @@ services:
       - timescaledb
       - mosquitto
 
+  # Stack de centralisation/visualisation des logs (scénario J3). Un seul
+  # `docker compose up -d` la démarre avec le reste — voir
+  # docs/decisions/0009-stack-logs-centralises.md et
+  # backend/observability/README.md.
+  loki:
+    image: grafana/loki:3.0.0
+    command: -config.file=/etc/loki/loki-config.yml
+    volumes:
+      - ./observability/loki-config.yml:/etc/loki/loki-config.yml
+      - loki-data:/loki
+    ports:
+      - '3100:3100'
+
+  promtail:
+    image: grafana/promtail:3.0.0
+    command: -config.file=/etc/promtail/promtail-config.yml
+    volumes:
+      - ./observability/promtail-config.yml:/etc/promtail/promtail-config.yml
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    environment:
+      # Auth désactivée : stack locale/démo, jamais exposée publiquement —
+      # objectif ici est qu'une personne extérieure au groupe puisse
+      # reproduire les observations sans étape de connexion.
+      GF_AUTH_ANONYMOUS_ENABLED: 'true'
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_DISABLE_LOGIN_FORM: 'true'
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning
+      - ./observability/grafana/dashboards:/etc/grafana/provisioning/dashboards/json
+    ports:
+      - '3001:3000'
+    depends_on:
+      - loki
+
 volumes:
   postgres-data:
   timescale-data:
+  loki-data:
