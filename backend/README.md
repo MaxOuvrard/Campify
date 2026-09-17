@@ -55,6 +55,24 @@ de démo, pointer `MQTT_URL` vers le broker de démonstration au format
 demander à l'équipe**, jamais commités (voir [ADR 0004](../docs/decisions/0004-contrat-mqtt-placeholder.md)
 pour le contexte, et le rappel dans `.env.example`).
 
+### Simuler des devices en local (sans le kit)
+
+Pour rejouer les scénarios J3 (doublon, coupure brutale, montée en charge,
+message retained, comparaison QoS) sans dépendre du broker partagé du
+kit : `backend/scripts/simulate-devices.ts`, publie de la télémétrie
+plausible pour plusieurs devices en parallèle sur le mosquitto local.
+
+```bash
+npm run simulate:devices -- --password changeme-local-only
+```
+
+Un identifiant par device doit avoir été généré au préalable (section
+Démarrage ci-dessus, un device = une identité MQTT distincte imposée par
+l'ACL). Voir `npm run simulate:devices -- --help` pour les options
+(`--qos`, `--retain`, `--duplicate-rate`, `--interval`, `--devices`…).
+Interrompre avec Ctrl+C ; un `kill -9`/fermeture brutale du terminal
+simule un capteur qui s'arrête sans déconnexion propre.
+
 ### Alternative : tout via Docker Compose
 
 `docker compose up -d --build` démarre aussi le backend (dans un
@@ -77,6 +95,7 @@ contre le Postgres exposé sur `5432`) pour peupler les données de démo.
 | `npm run prisma:migrate` | Applique les migrations en dev |
 | `npm run prisma:studio` | Interface d'exploration de la base |
 | `npm run prisma:seed` | Peuple les salles/devices de démo + l'utilisateur `demo@campify.local` |
+| `npm run simulate:devices` | Simule plusieurs devices MQTT en parallèle (scénarios J3), voir plus haut |
 
 ## Structure
 
