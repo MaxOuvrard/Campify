@@ -50,10 +50,10 @@ tout via Docker Compose » plus bas) plutôt qu'avec `npm run dev`. Détail :
 Avec la configuration par défaut (`MQTT_URL=mqtt://localhost:1883`), le
 backend écoute le Mosquitto local du `docker-compose.yml` — sans device qui
 y publie, aucune mesure n'arrive. Pour recevoir les mesures réelles du kit
-de démo, pointer `MQTT_URL` vers le broker de démonstration (adresse et
-identifiants dans
-[ADR 0004](../docs/decisions/0004-contrat-mqtt-placeholder.md)), au format
-`mqtt://<user>:<password>@<host>:<port>`.
+de démo, pointer `MQTT_URL` vers le broker de démonstration au format
+`mqtt://<user>:<password>@<host>:<port>` — **adresse et identifiants à
+demander à l'équipe**, jamais commités (voir [ADR 0004](../docs/decisions/0004-contrat-mqtt-placeholder.md)
+pour le contexte, et le rappel dans `.env.example`).
 
 ### Alternative : tout via Docker Compose
 

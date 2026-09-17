@@ -29,8 +29,8 @@ niveau de la connexion MQTT (qui a le droit de publier où), jamais au
 niveau applicatif après coup — le domaine consomme un flux déjà résolu, il
 n'a pas les moyens de vérifier une identité que le broker a laissée passer.
 
-**Limite assumée** : le broker de démonstration du kit (VPS partagé,
-`192.162.68.176:8080`, voir ADR 0004) n'est pas sous notre contrôle. Cette
+**Limite assumée** : le broker de démonstration du kit (VPS partagé, voir
+ADR 0004) n'est pas sous notre contrôle. Cette
 décision durcit le broker **local** (`backend/docker-compose.yml`) ; elle
 ne change rien à la sécurité du broker du kit, dont on ignore même si les
 devices simulés s'authentifient individuellement ou via un identifiant

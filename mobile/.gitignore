@@ -30,7 +30,10 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
+# local env files — `.env*.local` seul ne couvre pas un `.env` sans
+# suffixe (cf. audit secrets J3) ; celui-ci n'existe pas aujourd'hui,
+# ignoré par précaution s'il apparaît un jour.
+.env
 .env*.local
 
 # typescript

@@ -3,11 +3,15 @@
 ## Statut
 
 Partiellement mise à jour le 2026-09-15 : le contrat de **télémétrie**
-(topic + payload) a été observé sur le broker de démonstration
-(`192.162.68.176:8080`, MQTT plain TCP, auth `backend`/`backend-demo`) et
-implémenté. Le contrat de **commandes/acquittements** reste un
+(topic + payload) a été observé sur le broker de démonstration du kit
+(MQTT plain TCP). **Correction J3** : cette section exposait jusqu'ici
+l'adresse et les identifiants réels du broker en clair dans ce fichier
+commité — retirés (voir `docs/J3.md`, audit secrets). À demander à
+l'équipe et à ne conserver que dans un `.env` local, jamais dans un
+fichier versionné. Le contrat de **commandes/acquittements** reste un
 placeholder non vérifié — aucune commande n'a été publiée vers le kit
-pour confirmer sa forme (voir « Ce qui reste en placeholder » ci-dessous).
+pour confirmer sa forme (voir « Ce qui reste en placeholder »
+ci-dessous).
 
 ## Contexte
 
