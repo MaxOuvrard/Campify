@@ -85,3 +85,10 @@ les messages entre les 3 instances au lieu de les dupliquer vers chacune.
   perte de la mémorisation côté broker pour l'ancienne. Acceptable : un
   redémarrage simple (`docker compose restart ingester`) garde le même
   conteneur, donc le même hostname, donc la même session.
+
+## Mise à jour (ADR 0013)
+
+L'ingester n'écrit plus dans une base brute Prisma : il insère chaque
+message MQTT tel quel dans MongoDB, sans le parser. Plusieurs instances
+écrivent dans la même collection ; le worker les relit toutes dans l'ordre
+`receivedAt`. Voir [ADR 0013](0013-journal-brut-mongodb-et-base-verifiee-timescaledb.md).

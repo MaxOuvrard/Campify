@@ -34,6 +34,35 @@ export function extractMetrics(payload: IncomingTelemetryPayload): Array<{ type:
     .map(([type, metric]) => ({ type, value: metric.value, unit: metric.unit }))
 }
 
+export type DecodedTelemetry =
+  | { ok: true; messageId: string; observedAt: Date; metrics: Array<{ type: string; value: number; unit: string }> }
+  | { ok: false; reason: 'invalid_json' | 'invalid_schema'; error?: string }
+
+/**
+ * Décode un payload de télémétrie brut (texte) en métriques. C'est le seul
+ * endroit qui sait lire le contrat : le worker l'appelle sur les
+ * événements du journal brut (ADR 0013), l'ingester n'interprète jamais
+ * rien. Un changement de contrat ne touche donc que ce fichier.
+ */
+export function decodeTelemetry(payload: string): DecodedTelemetry {
+  let json: unknown
+  try {
+    json = JSON.parse(payload)
+  } catch {
+    return { ok: false, reason: 'invalid_json' }
+  }
+  const result = incomingTelemetrySchema.safeParse(json)
+  if (!result.success) {
+    return { ok: false, reason: 'invalid_schema', error: result.error.message }
+  }
+  return {
+    ok: true,
+    messageId: result.data.message_id,
+    observedAt: new Date(result.data.observed_at),
+    metrics: extractMetrics(result.data)
+  }
+}
+
 export const incomingCommandAckSchema = z.object({
   commandId: z.string().min(1),
   acknowledgedAt: z.string().datetime().optional()

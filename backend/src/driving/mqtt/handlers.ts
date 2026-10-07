@@ -1,84 +1,46 @@
 import { Logger } from '../../domain/ports/Logger'
-import { MqttTopics } from '../../shared/mqttTopics'
-import { MeasurementIngestionService } from '../../domain/services/MeasurementIngestionService'
+import { RawEventRepository } from '../../domain/ports/RawEventRepository'
 import { CommandService } from '../../domain/services/CommandService'
-import { incomingTelemetrySchema, incomingCommandAckSchema, extractMetrics } from './schemas'
+import { incomingCommandAckSchema } from './schemas'
 
 const MEASUREMENT_EVENT_TYPE = 'measurement_ingestion'
 const COMMAND_ACK_EVENT_TYPE = 'command_ack'
 
 export interface MeasurementHandlerDeps {
-  topics: MqttTopics
-  ingestion: MeasurementIngestionService
+  rawEvents: RawEventRepository
   logger: Logger
 }
 
+export interface MessageMeta {
+  qos?: number
+  retain?: boolean
+}
+
+/**
+ * Chemin d'ingestion MQTT (ADR 0013) : ne fait que journaliser le message
+ * tel que reçu. Aucun parsing, aucune validation, aucun filtre ici — un
+ * payload invalide, un device inconnu ou un doublon sont stockés comme
+ * les autres, et c'est le worker (`driving/worker`) qui décide plus tard
+ * de leur sort. Seul un échec d'écriture du journal est journalisé : le
+ * message est alors perdu pour cette instance (voir ADR 0010).
+ */
 export function createMeasurementHandler(deps: MeasurementHandlerDeps) {
-  return async function handleMeasurementMessage(topic: string, payload: Buffer | string): Promise<void> {
-    const deviceId = deps.topics.parseDeviceIdFromMeasurementTopic(topic)
-    if (deviceId === null) {
-      deps.logger.warn('mqtt measurement on unrecognized topic', {
+  return async function handleMeasurementMessage(topic: string, payload: Buffer | string, meta: MessageMeta = {}): Promise<void> {
+    try {
+      await deps.rawEvents.record({
+        topic,
+        payload: payload.toString(),
+        qos: meta.qos ?? 0,
+        retain: meta.retain ?? false
+      })
+    } catch (err) {
+      deps.logger.error('failed to record raw event', {
         eventType: MEASUREMENT_EVENT_TYPE,
         topic,
-        status: 'rejected',
-        reason: 'unrecognized_topic'
+        status: 'error',
+        reason: 'raw_unavailable',
+        error: (err as Error).message
       })
-      return
-    }
-
-    const json = parseJson(payload)
-    if (json === undefined) {
-      deps.logger.warn('mqtt measurement payload is not valid json', {
-        eventType: MEASUREMENT_EVENT_TYPE,
-        topic,
-        deviceId,
-        status: 'rejected',
-        reason: 'invalid_json'
-      })
-      return
-    }
-
-    const result = incomingTelemetrySchema.safeParse(json)
-    if (!result.success) {
-      deps.logger.warn('mqtt measurement failed schema validation', {
-        eventType: MEASUREMENT_EVENT_TYPE,
-        topic,
-        deviceId,
-        status: 'rejected',
-        reason: 'invalid_schema',
-        error: result.error.message
-      })
-      return
-    }
-
-    const timestamp = new Date(result.data.observed_at)
-
-    for (const metric of extractMetrics(result.data)) {
-      try {
-        // Chemin rapide (ADR 0011) : écrit seulement en base brute, ne
-        // décide rien. Le rejet éventuel d'écriture brute est déjà journalisé
-        // par recordRaw(), avec eventId de corrélation — pas de double log
-        // ici. Dédup/plausibilité/écriture vérifiée sont traités plus tard,
-        // de façon asynchrone, par le worker de consolidation.
-        await deps.ingestion.recordRaw({
-          deviceId,
-          type: metric.type,
-          value: metric.value,
-          unit: metric.unit,
-          timestamp,
-          messageId: result.data.message_id
-        })
-      } catch (err) {
-        deps.logger.warn('failed to record raw measurement', {
-          eventType: MEASUREMENT_EVENT_TYPE,
-          topic,
-          deviceId,
-          type: metric.type,
-          eventId: result.data.message_id,
-          status: 'error',
-          reason: (err as Error).message
-        })
-      }
     }
   }
 }

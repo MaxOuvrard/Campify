@@ -35,9 +35,11 @@ device+type :
 
 **Séparation en deux bases**, dans `MeasurementIngestionService.ingest()` :
 
-- Une base **brute** (TimescaleDB, port `RawMeasurementRepository`) reçoit
-  systématiquement toute mesure entrante, sans filtre — trace fidèle de ce
-  qui a été reçu, y compris doublons et retards, utile pour diagnostiquer
+- Une base **brute** (à l'origine une table TimescaleDB, remplacée par un
+  journal MongoDB des messages MQTT dans l'[ADR 0013](0013-journal-brut-mongodb-et-base-verifiee-timescaledb.md))
+  reçoit systématiquement toute mesure entrante, sans filtre, y compris
+  doublons et retards — la première version n'était toutefois pas
+  réellement brute (payloads invalides perdus), ce que l'ADR 0013 corrige, utile pour diagnostiquer
   un device qui spam ou un contrat MQTT qui dérive.
 - Cette même ligne est relue depuis la base brute (pas la donnée entrante
   en mémoire), et c'est cette relecture qui passe par `decideMeasurement`.
@@ -68,3 +70,11 @@ TimescaleDB distincte plutôt qu'une hypertable sur `Measurement`.
 - Deux schémas Prisma (`prisma/schema.prisma` pour la base vérifiée,
   `prisma/raw/schema.prisma` pour la base brute) et deux clients générés
   (`npm run prisma:generate` lance les deux) — voir `backend/README.md`.
+
+## Mise à jour (ADR 0013)
+
+Le mécanisme décrit ci-dessus (`ingest()`, relecture de la ligne brute,
+port `RawMeasurementRepository`) a été remplacé : la zone d'atterrissage est
+un journal MongoDB de messages MQTT bruts, relu par le worker via un
+curseur. Les règles de dédup/retard/plausibilité de cet ADR sont inchangées.
+Voir [ADR 0013](0013-journal-brut-mongodb-et-base-verifiee-timescaledb.md).

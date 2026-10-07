@@ -5,6 +5,7 @@ import { PrismaClient } from '@prisma/client'
 import { PrismaMeasurementRepository } from '../../../src/infra/db/PrismaMeasurementRepository'
 import { PrismaDeviceRepository } from '../../../src/infra/db/PrismaDeviceRepository'
 import { PrismaRoomRepository } from '../../../src/infra/db/PrismaRoomRepository'
+import { NotFoundError } from '../../../src/shared/errors'
 
 /**
  * Test de contrat : vérifie que PrismaMeasurementRepository respecte
@@ -79,6 +80,18 @@ test('PrismaMeasurementRepository respects the MeasurementRepository contract', 
 
     const otherDevice = await devices.create({ name: 'other-device', type: 'temperature', roomId: room.id })
     assert.equal(await measurements.findLatestReceivedAt(otherDevice.id), null)
+
+    // Device inconnu : échec définitif typé (le worker l'envoie en dead-letter),
+    // pas une erreur Prisma brute qui serait retentée indéfiniment.
+    await assert.rejects(
+      measurements.create({ deviceId: `ghost-${randomUUID()}`, type: 'temperature', value: 1, timestamp: new Date('2024-01-01T10:00:00Z') }),
+      NotFoundError
+    )
+
+    // La table est bien une hypertable TimescaleDB (migration 20261008090000).
+    const hypertables = await prisma.$queryRaw<Array<{ hypertable_name: string }>>`
+      SELECT hypertable_name FROM timescaledb_information.hypertables WHERE hypertable_name = 'Measurement'`
+    assert.equal(hypertables.length, 1)
   } finally {
     await prisma.measurement.deleteMany({ where: { device: { roomId: room.id } } })
     await prisma.device.deleteMany({ where: { roomId: room.id } })

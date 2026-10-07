@@ -32,7 +32,7 @@ backend/src/
 │
 ├── infra/              # adapters, implémentent les ports
 │   ├── db/                # repositories Prisma/Postgres (base vérifiée)
-│   │   └── raw/              # repository Prisma/TimescaleDB (base brute)
+│   ├── mongo/             # journal brut MongoDB, checkpoints du worker, dead-letters
 │   └── mqtt/              # publisher MQTT (émission de commandes)
 │
 ├── driving/             # ce qui déclenche le domaine
@@ -65,12 +65,13 @@ flowchart LR
     Device[Device IoT] -- mesures --> Broker[(Broker MQTT)]
     Broker -- ack commandes --> Device
     Broker <-. "$share/campify-ingesters/..." .-> MqttDriving["driving/mqtt (process ingester, 1..N instances)"]
-    MqttDriving -- recordRaw --> RawInfra[infra/db/raw - Prisma]
-    RawInfra --> RawDB[(TimescaleDB - brute)]
+    MqttDriving -- "record (message tel quel)" --> RawInfra[infra/mongo]
+    RawInfra --> RawDB[(MongoDB - journal brut)]
 
-    WorkerDriving["driving/worker (process séparé, poll ~3s)"] -- findUnconsolidated --> RawDB
+    WorkerDriving["driving/worker (process séparé, poll ~3s, curseur)"] -- "findAfter(curseur)" --> RawDB
+    WorkerDriving -- "dead-letter / checkpoint" --> RawDB
     WorkerDriving -- consolidate --> Infra[infra/db - Prisma]
-    Infra --> DB[(PostgreSQL - vérifiée)]
+    Infra --> DB[(TimescaleDB - vérifiée)]
 
     Client[Client web/mobile] -- HTTP/JWT --> ApiDriving["driving/api (process API)"]
     ApiDriving --> Infra
@@ -86,29 +87,35 @@ potentiellement plusieurs instances via souscription partagée, voir
 **API** (HTTP, lecture base vérifiée uniquement + publication de
 commandes). Un pic de charge sur l'un ne ralentit jamais les deux autres.
 
-## Persistance des mesures : base brute et base vérifiée
+## Persistance des mesures : journal brut et base vérifiée
 
 Toute mesure entrante passe par deux étapes séparées dans le temps, portées
-par deux process distincts — voir [ADR 0011](decisions/0011-worker-consolidation-polling.md)
-et [ADR 0012](decisions/0012-ingester-separe-souscription-partagee.md) :
+par deux process distincts — voir [ADR 0013](decisions/0013-journal-brut-mongodb-et-base-verifiee-timescaledb.md),
+[ADR 0011](decisions/0011-worker-consolidation-polling.md) et
+[ADR 0012](decisions/0012-ingester-separe-souscription-partagee.md) :
 
-1. **Base brute** (TimescaleDB, port `RawMeasurementRepository`) — écrite
-   par `MeasurementIngestionService.recordRaw()`, appelé depuis
-   `driving/mqtt` dans le process **ingester** (séparé de l'API depuis
-   l'ADR 0012). Reçoit systématiquement toute mesure entrante, sans
-   filtre, et s'arrête là : aucune décision métier à cet endroit. Le
-   process API ne lit ni n'écrit jamais cette base.
-2. **Base vérifiée** (PostgreSQL, port `MeasurementRepository`) — écrite
-   par `MeasurementIngestionService.consolidate()`, appelé par le worker de
-   consolidation (`driving/worker`, **process séparé**, qui interroge la
-   base brute toutes les ~3s pour ce qui n'a pas encore été traité). Ne
-   reçoit que ce qui a passé la règle de déduplication/retard
-   (`domain/services/dedup.ts`) ; c'est elle qui alimente l'API (dernière
-   valeur, historique, présence).
+1. **Journal brut** (MongoDB, collection `raw_events`, port
+   `RawEventRepository`) — un document par message MQTT, tel que reçu
+   (topic, payload exact même invalide, qos, retain, `receivedAt`), écrit
+   par le handler de `driving/mqtt` dans le process **ingester** sans aucun
+   parsing ni décision. Jamais modifié ensuite ; expire seul (index TTL,
+   30 jours). Le process API ne le lit ni ne l'écrit jamais.
+2. **Base vérifiée** (PostgreSQL + TimescaleDB, port `MeasurementRepository`)
+   — `Measurement` est une hypertable partitionnée par `timestamp`
+   (compression au-delà de 7 jours) ; Room, Device, User, Command sont des
+   tables ordinaires dans la même instance. Alimentée par le **worker**
+   (`driving/worker`, process séparé) : il relit le journal depuis son
+   curseur, décode le message (`decodeTelemetry`), puis appelle
+   `MeasurementIngestionService.consolidate()` (plausibilité, déduplication/
+   retard `domain/services/dedup.ts`, alertes). C'est elle qui alimente
+   l'API (dernière valeur, historique, présence).
 
-Chaque ligne de la base brute porte un `consolidatedAt`, renseigné par le
-worker une fois la décision prise (acceptée ou rejetée) — c'est ce qui lui
-permet de ne jamais retraiter deux fois la même ligne.
+Progression du worker : un curseur `(receivedAt, id)` sauvegardé dans la
+collection `consolidation_checkpoints` après chaque lot — aucune colonne
+« traité » sur les événements. Ce qui ne peut pas devenir une mesure
+(JSON invalide, hors contrat, topic ou device inconnu) est conservé dans la
+collection `dead_letters` avec son motif ; une panne de la base vérifiée
+est transitoire : le curseur reste en place et l'événement est retenté.
 
 Règle de déduplication/retard (`decideMeasurement`), appliquée à la
 dernière mesure connue pour un device+type :
@@ -159,7 +166,7 @@ Toute mesure entrante passe ensuite par la validation de structure (Zod,
 type de métrique (`domain/services/plausibility.ts`, ex. température entre
 -40 et 85°C) avant d'atteindre la base vérifiée — une valeur hors bornes ou
 non finie (NaN/Infinity) est rejetée (`implausible_value`) mais reste
-tracée en base brute, au même titre qu'un doublon ou un retard.
+tracée dans le journal brut, au même titre qu'un doublon ou un retard.
 
 ## Connexion MQTT : QoS et visibilité sur les coupures
 
@@ -253,21 +260,21 @@ inversement. Détail et justification :
 | Frontend mobile | React Native + Expo (TypeScript) | Scaffold `blank-typescript`, voir `mobile/` |
 | Backend | Fastify (TypeScript) | Architecture hexagonale, voir `backend/` |
 | Base de données vérifiée | PostgreSQL | Relationnel, entités et relations stables — voir [ADR 0002](decisions/0002-postgresql-et-prisma.md) |
-| Base de données brute | TimescaleDB | Trace fidèle de toute mesure reçue avant dédup/retard, schéma Prisma séparé — voir [ADR 0005](decisions/0005-dedup-ordre-et-separation-base-brute-verifiee.md) |
-| ORM | Prisma | Migrations + typage généré + mapping domaine/persistance explicite, deux schémas (`prisma/schema.prisma`, `prisma/raw/schema.prisma`) |
+| Journal brut | MongoDB | Un document par message MQTT reçu, tel quel (même invalide), insertions seules, TTL — voir [ADR 0013](decisions/0013-journal-brut-mongodb-et-base-verifiee-timescaledb.md), [ADR 0005](decisions/0005-dedup-ordre-et-separation-base-brute-verifiee.md) |
+| ORM | Prisma (base vérifiée) / driver `mongodb` (journal brut) | Migrations + typage généré + mapping domaine/persistance explicite ; l'hypertable `Measurement` est créée par migration SQL manuelle |
 | Messagerie IoT | MQTT (mqtt.js) + Zod | Validation de schéma par topic avant tout passage au domaine — contrat provisoire, voir [ADR 0004](decisions/0004-contrat-mqtt-placeholder.md) |
 | Dédup / ordre des mesures | `domain/services/dedup.ts` | `messageId` MQTT en priorité, sinon timestamp — voir [ADR 0005](decisions/0005-dedup-ordre-et-separation-base-brute-verifiee.md) |
 | Cache mobile | AsyncStorage | Dernière réponse connue par clé + date, best-effort — voir [ADR 0006](decisions/0006-cache-mobile-et-affichage-de-la-fraicheur.md) |
 | Auth & droits | JWT (`@fastify/jwt`) + RBAC | Distingue droits de consultation et droits de commande |
 | Auth MQTT | mosquitto password_file + ACL par device (broker local) | Un device ne peut publier que sur sa propre télémétrie — voir [ADR 0008](decisions/0008-identite-devices-authentification-mqtt.md) |
-| Plausibilité des mesures | `domain/services/plausibility.ts` | Bornes physiques par type de métrique, rejet avant la base vérifiée (trace conservée en base brute) |
+| Plausibilité des mesures | `domain/services/plausibility.ts` | Bornes physiques par type de métrique, rejet avant la base vérifiée (trace conservée dans le journal brut) |
 | Logs | Pino (JSON), `eventType`/`eventId`/`status`/`reason` | Corrélation d'une mesure de sa réception à son traitement |
 | Centralisation des logs | Loki + Promtail + Grafana (`docker-compose.yml`) | Dashboard provisionné, filtres par device/rejets/doublons/retard/MQTT — voir [ADR 0009](decisions/0009-stack-logs-centralises.md) |
 | Session MQTT ingester | `clientId` dérivé du hostname + `clean: false` | Sans ça, QoS 1 seul ne suffit pas à survivre à une coupure — voir [ADR 0010](decisions/0010-session-mqtt-persistante.md) |
-| Ingestion MQTT | Process `ingester` séparé de l'API, souscription partagée (`$share/<groupe>/...`) | L'API ne touche plus jamais la base brute ; plusieurs instances de l'ingester se répartissent les messages (vérifié : 6 messages → 6 lignes avec 3 instances, pas 18) — voir [ADR 0012](decisions/0012-ingester-separe-souscription-partagee.md) |
+| Ingestion MQTT | Process `ingester` séparé de l'API, souscription partagée (`$share/<groupe>/...`) | L'API ne touche plus jamais le journal brut ; plusieurs instances de l'ingester se répartissent les messages (vérifié : 6 messages → 6 lignes avec 3 instances, pas 18) — voir [ADR 0012](decisions/0012-ingester-separe-souscription-partagee.md) |
 | Consolidation des mesures | Worker séparé, polling ~3s (`driving/worker`) | Dédup/écriture base vérifiée hors du process API — un pic MQTT ne ralentit plus les réponses API. Polling plutôt que Redis : pas de nouvelle techno, absorbe mieux les rafales — voir [ADR 0011](decisions/0011-worker-consolidation-polling.md) |
 | Tests | `node:test` + fakes en mémoire (backend), Jest + `jest-expo` (mobile) | Unitaires sur `domain/services`, intégration par adapter (Prisma, handler MQTT), coupure/retour réseau et reprise d'app côté mobile |
-| Infra | Docker Compose (Postgres, TimescaleDB, Mosquitto, Loki/Promtail/Grafana) | Un seul `docker compose up -d`, voir `backend/README.md` |
+| Infra | Docker Compose (PostgreSQL+TimescaleDB, MongoDB, Mosquitto, Loki/Promtail/Grafana) | Un seul `docker compose up -d`, voir `backend/README.md` |
 
 Patterns explicitement écartés (CQRS, event sourcing, DDD strict,
 microservices) et leur justification :

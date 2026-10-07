@@ -2,126 +2,66 @@ import { test } from 'node:test'
 import * as assert from 'node:assert'
 import { createMeasurementHandler, createCommandAckHandler } from '../../../src/driving/mqtt/handlers'
 import { createMqttTopics } from '../../../src/shared/mqttTopics'
-import { MeasurementIngestionService } from '../../../src/domain/services/MeasurementIngestionService'
 import { CommandService } from '../../../src/domain/services/CommandService'
-import { InMemoryDeviceRepository, InMemoryMeasurementRepository, InMemoryCommandRepository } from '../../fakes/inMemoryRepositories'
-import { FixedClock, FakeLogger, FakeMqttPublisher, FakeRawMeasurementRepository } from '../../fakes/testDoubles'
+import { InMemoryDeviceRepository, InMemoryCommandRepository } from '../../fakes/inMemoryRepositories'
+import { FixedClock, FakeLogger, FakeMqttPublisher, FakeRawEventRepository } from '../../fakes/testDoubles'
 
 const topics = createMqttTopics('campus')
 
-// Depuis l'ADR 0011, le handler MQTT n'appelle plus que `recordRaw()` — il
-// écrit en base brute et s'arrête là. Le dédup/plausibilité/écriture en
-// base vérifiée est désormais le rôle du worker de consolidation (testé
-// séparément dans measurementIngestionService.test.ts, via `consolidate()`)
-// et n'a donc plus sa place dans les tests du handler lui-même.
+// Depuis l'ADR 0013, le handler de mesures ne fait que journaliser le message
+// tel que reçu : parsing, validation, dédup et plausibilité sont le rôle du
+// worker (testé dans test/driving/worker et measurementIngestionService.test.ts).
 
-test('measurement handler validates and records every metric of a well-formed telemetry message in the raw store', async () => {
-  const devices = new InMemoryDeviceRepository()
-  const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
-  const measurements = new InMemoryMeasurementRepository()
-  const rawMeasurements = new FakeRawMeasurementRepository()
+test('measurement handler stores the message exactly as received, without interpreting it', async () => {
+  const rawEvents = new FakeRawEventRepository()
   const logger = new FakeLogger()
-  const ingestion = new MeasurementIngestionService(measurements, rawMeasurements, logger)
+  const handler = createMeasurementHandler({ rawEvents, logger })
+  const payload = JSON.stringify({ schema_version: 1, message_id: 'abc-1', temperature: { value: 21.7, unit: '°C' } })
 
-  const handler = createMeasurementHandler({ topics, ingestion, logger })
-  const topic = `campus/v1/devices/${device.id}/telemetry`
-  const payload = JSON.stringify({
-    schema_version: 1,
-    message_id: 'abc-1',
-    device_id: device.id,
-    room_id: 'salle-203',
-    observed_at: '2024-01-01T00:00:00.000Z',
-    temperature: { value: 21.7, unit: '°C' },
-    co2: { value: 2500, unit: 'ppm' }
-  })
+  await handler('campus/v1/devices/sensor-001/telemetry', Buffer.from(payload), { qos: 1, retain: false })
 
-  await handler(topic, payload)
-
-  // Rien en base vérifiée : seule l'écriture brute se fait dans le handler,
-  // la consolidation n'a pas encore eu lieu.
-  assert.equal(measurements.measurements.length, 0)
-  assert.equal(rawMeasurements.recorded.length, 2)
+  assert.equal(rawEvents.events.length, 1)
   assert.deepEqual(
-    rawMeasurements.recorded.map((r) => r.type).sort(),
-    ['co2', 'temperature']
+    { topic: rawEvents.events[0].topic, payload: rawEvents.events[0].payload, qos: rawEvents.events[0].qos, retain: rawEvents.events[0].retain },
+    { topic: 'campus/v1/devices/sensor-001/telemetry', payload, qos: 1, retain: false }
   )
-  assert.ok(rawMeasurements.recorded.every((r) => r.deviceId === device.id))
-  assert.ok(rawMeasurements.recorded.every((r) => r.messageId === 'abc-1'))
-  assert.ok(rawMeasurements.recorded.every((r) => r.consolidatedAt === null))
 })
 
-test('measurement handler records an exact MQTT retransmission (same message_id) twice in the raw store, unfiltered', async () => {
-  const devices = new InMemoryDeviceRepository()
-  const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
-  const measurements = new InMemoryMeasurementRepository()
-  const rawMeasurements = new FakeRawMeasurementRepository()
+test('measurement handler also stores a payload that is not valid JSON (nothing is filtered at ingestion)', async () => {
+  const rawEvents = new FakeRawEventRepository()
   const logger = new FakeLogger()
-  const ingestion = new MeasurementIngestionService(measurements, rawMeasurements, logger)
+  const handler = createMeasurementHandler({ rawEvents, logger })
 
-  const handler = createMeasurementHandler({ topics, ingestion, logger })
-  const topic = `campus/v1/devices/${device.id}/telemetry`
-  const payload = JSON.stringify({
-    schema_version: 1,
-    message_id: 'retransmit-1',
-    device_id: device.id,
-    room_id: 'salle-203',
-    observed_at: '2024-01-01T00:00:00.000Z',
-    temperature: { value: 21.7, unit: '°C' }
-  })
+  await handler('campus/v1/devices/sensor-001/telemetry', 'not json {{')
 
-  await handler(topic, payload)
-  await handler(topic, payload)
-
-  // La base brute trace tout, y compris les retransmissions — voir ADR 0005.
-  // Le filtrage du doublon n'intervient qu'à la consolidation, pas ici.
-  assert.equal(measurements.measurements.length, 0)
-  assert.equal(rawMeasurements.recorded.length, 2)
+  assert.equal(rawEvents.events.length, 1)
+  assert.equal(rawEvents.events[0].payload, 'not json {{')
+  assert.equal(logger.entries.length, 0)
 })
 
-test('measurement handler logs and drops an invalid payload before any raw write', async () => {
-  const devices = new InMemoryDeviceRepository()
-  const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
-  const measurements = new InMemoryMeasurementRepository()
-  const rawMeasurements = new FakeRawMeasurementRepository()
-  const logger = new FakeLogger()
-  const ingestion = new MeasurementIngestionService(measurements, rawMeasurements, logger)
+test('measurement handler stores an exact retransmission (same message_id) twice, unfiltered', async () => {
+  const rawEvents = new FakeRawEventRepository()
+  const handler = createMeasurementHandler({ rawEvents, logger: new FakeLogger() })
+  const payload = JSON.stringify({ message_id: 'retransmit-1' })
 
-  const handler = createMeasurementHandler({ topics, ingestion, logger })
-  const topic = `campus/v1/devices/${device.id}/telemetry`
+  await handler('campus/v1/devices/sensor-001/telemetry', payload)
+  await handler('campus/v1/devices/sensor-001/telemetry', payload)
 
-  await handler(topic, 'not json')
-  await handler(topic, JSON.stringify({ schema_version: 1, message_id: 'abc-1', device_id: device.id }))
-
-  assert.equal(rawMeasurements.recorded.length, 0)
-  assert.equal(measurements.measurements.length, 0)
-  assert.equal(logger.entries.filter((e) => e.level === 'warn').length, 2)
+  assert.equal(rawEvents.events.length, 2)
 })
 
-test('measurement handler logs a warning and keeps processing when the raw store throws', async () => {
-  const devices = new InMemoryDeviceRepository()
-  const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
-  const measurements = new InMemoryMeasurementRepository()
+test('measurement handler logs an error and does not throw when the raw store is unavailable', async () => {
+  const rawEvents = new FakeRawEventRepository()
+  rawEvents.failNext = true
   const logger = new FakeLogger()
-  const rawMeasurements = new FakeRawMeasurementRepository()
-  const ingestion = new MeasurementIngestionService(measurements, rawMeasurements, logger)
+  const handler = createMeasurementHandler({ rawEvents, logger })
 
-  const handler = createMeasurementHandler({ topics, ingestion, logger })
-  const topic = `campus/v1/devices/${device.id}/telemetry`
-  const payload = JSON.stringify({
-    schema_version: 1,
-    message_id: 'abc-2',
-    device_id: device.id,
-    room_id: 'salle-203',
-    observed_at: '2024-01-01T00:00:00.000Z',
-    temperature: { value: 21.7, unit: '°C' }
-  })
+  await handler('campus/v1/devices/sensor-001/telemetry', '{}')
 
-  // recordRaw() journalise déjà et avale les échecs d'écriture brute (voir
-  // MeasurementIngestionService) — ce test vérifie juste que le handler ne
-  // plante jamais, quel que soit le motif de l'échec en amont.
-  rawMeasurements.failNext = true
-  await assert.doesNotReject(handler(topic, payload))
-  assert.ok(logger.entries.some((e) => e.level === 'warn' && e.msg === 'failed to record raw measurement'))
+  assert.equal(rawEvents.events.length, 0)
+  const entry = logger.entries.find((e) => e.msg === 'failed to record raw event')
+  assert.equal(entry?.level, 'error')
+  assert.equal(entry?.meta?.topic, 'campus/v1/devices/sensor-001/telemetry')
 })
 
 test('command ack handler acknowledges the command via the domain service', async () => {

@@ -1,6 +1,7 @@
-import { PrismaClient } from '@prisma/client'
+import { Prisma, PrismaClient } from '@prisma/client'
 import { MeasurementRepository } from '../../domain/ports/MeasurementRepository'
 import { Measurement, NewMeasurement } from '../../domain/entities/Measurement'
+import { NotFoundError } from '../../shared/errors'
 
 interface MeasurementRow {
   id: string
@@ -21,17 +22,27 @@ export class PrismaMeasurementRepository implements MeasurementRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
   async create(input: NewMeasurement): Promise<Measurement> {
-    const row = await this.prisma.measurement.create({
-      data: {
-        deviceId: input.deviceId,
-        type: input.type,
-        value: input.value,
-        unit: input.unit ?? null,
-        timestamp: input.timestamp,
-        messageId: input.messageId ?? null
+    try {
+      const row = await this.prisma.measurement.create({
+        data: {
+          deviceId: input.deviceId,
+          type: input.type,
+          value: input.value,
+          unit: input.unit ?? null,
+          timestamp: input.timestamp,
+          messageId: input.messageId ?? null
+        }
+      })
+      return toDomain(row)
+    } catch (err) {
+      // Clé étrangère violée = le device n'existe pas : échec définitif que
+      // le worker envoie en dead-letter, par opposition à une panne de base
+      // (transitoire, retentée) — voir driving/worker/consolidationPoller.ts.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2003') {
+        throw new NotFoundError(`unknown device ${input.deviceId}`)
       }
-    })
-    return toDomain(row)
+      throw err
+    }
   }
 
   async findLatestByDevice(deviceId: string, type?: string): Promise<Measurement | null> {

@@ -1,10 +1,10 @@
 import { Clock } from '../../src/domain/ports/Clock'
 import { Logger } from '../../src/domain/ports/Logger'
 import { MqttPublisher, OutgoingCommandMessage } from '../../src/domain/ports/MqttPublisher'
-import { RawMeasurementRepository } from '../../src/domain/ports/RawMeasurementRepository'
-import { NewMeasurement } from '../../src/domain/entities/Measurement'
-import { RawMeasurement } from '../../src/domain/entities/RawMeasurement'
-import { randomUUID } from 'node:crypto'
+import { RawEventRepository } from '../../src/domain/ports/RawEventRepository'
+import { ConsolidationCheckpointRepository } from '../../src/domain/ports/ConsolidationCheckpointRepository'
+import { DeadLetterRepository } from '../../src/domain/ports/DeadLetterRepository'
+import { DeadLetter, NewRawEvent, RawEvent, RawEventCursor } from '../../src/domain/entities/RawEvent'
 
 export class FixedClock implements Clock {
   constructor(private current: Date) {}
@@ -48,47 +48,64 @@ export class FakeMqttPublisher implements MqttPublisher {
   }
 }
 
-export class FakeRawMeasurementRepository implements RawMeasurementRepository {
-  readonly recorded: RawMeasurement[] = []
+export class FakeRawEventRepository implements RawEventRepository {
+  readonly events: RawEvent[] = []
   failNext = false
-  vanishOnReadBack = false
 
-  async record(input: NewMeasurement): Promise<RawMeasurement> {
+  async record(event: NewRawEvent): Promise<RawEvent> {
     if (this.failNext) {
       this.failNext = false
       throw new Error('raw store unavailable')
     }
-    const raw: RawMeasurement = {
-      id: randomUUID(),
-      deviceId: input.deviceId,
-      type: input.type,
-      value: input.value,
-      unit: input.unit ?? null,
-      timestamp: input.timestamp,
-      messageId: input.messageId ?? null,
-      receivedAt: new Date(),
-      consolidatedAt: null
+    const raw: RawEvent = {
+      id: String(this.events.length + 1).padStart(24, '0'),
+      topic: event.topic,
+      payload: event.payload,
+      qos: event.qos,
+      retain: event.retain,
+      receivedAt: event.receivedAt ?? new Date(Date.now() - 10_000)
     }
-    this.recorded.push(raw)
+    this.events.push(raw)
     return raw
   }
 
-  async findById(id: string): Promise<RawMeasurement | null> {
-    if (this.vanishOnReadBack) return null
-    return this.recorded.find((r) => r.id === id) ?? null
-  }
-
-  async findUnconsolidated(limit: number): Promise<RawMeasurement[]> {
-    return this.recorded
-      .filter((r) => r.consolidatedAt === null)
-      .sort((a, b) => a.receivedAt.getTime() - b.receivedAt.getTime())
+  async findAfter(cursor: RawEventCursor | null, limit: number, receivedBefore: Date): Promise<RawEvent[]> {
+    return this.sorted()
+      .filter((e) => e.receivedAt < receivedBefore && isAfter(e, cursor))
       .slice(0, limit)
   }
 
-  async markConsolidated(ids: string[]): Promise<void> {
-    const idSet = new Set(ids)
-    for (const raw of this.recorded) {
-      if (idSet.has(raw.id)) raw.consolidatedAt = new Date()
-    }
+  async countAfter(cursor: RawEventCursor | null): Promise<number> {
+    return this.events.filter((e) => isAfter(e, cursor)).length
+  }
+
+  private sorted(): RawEvent[] {
+    return [...this.events].sort((a, b) => a.receivedAt.getTime() - b.receivedAt.getTime() || a.id.localeCompare(b.id))
+  }
+}
+
+function isAfter(event: RawEvent, cursor: RawEventCursor | null): boolean {
+  if (cursor === null) return true
+  const diff = event.receivedAt.getTime() - cursor.receivedAt.getTime()
+  return diff > 0 || (diff === 0 && event.id > cursor.id)
+}
+
+export class FakeCheckpointRepository implements ConsolidationCheckpointRepository {
+  readonly cursors = new Map<string, RawEventCursor>()
+
+  async load(consumer: string): Promise<RawEventCursor | null> {
+    return this.cursors.get(consumer) ?? null
+  }
+
+  async save(consumer: string, cursor: RawEventCursor): Promise<void> {
+    this.cursors.set(consumer, cursor)
+  }
+}
+
+export class FakeDeadLetterRepository implements DeadLetterRepository {
+  readonly deadLetters: DeadLetter[] = []
+
+  async record(deadLetter: DeadLetter): Promise<void> {
+    this.deadLetters.push(deadLetter)
   }
 }

@@ -1,13 +1,13 @@
 import { MqttClient } from 'mqtt'
 import { Logger } from '../../domain/ports/Logger'
 import { MqttTopics, matchesTopic } from '../../shared/mqttTopics'
-import { MeasurementIngestionService } from '../../domain/services/MeasurementIngestionService'
+import { RawEventRepository } from '../../domain/ports/RawEventRepository'
 import { CommandService } from '../../domain/services/CommandService'
 import { createMeasurementHandler, createCommandAckHandler } from './handlers'
 
 export interface MqttDrivingDeps {
   topics: MqttTopics
-  ingestion: MeasurementIngestionService
+  rawEvents: RawEventRepository
   commandService: CommandService
   logger: Logger
   /**
@@ -77,9 +77,9 @@ export function attachMqttSubscriptions(client: MqttClient, deps: MqttDrivingDep
     deps.logger.warn('mqtt client offline', { eventType: 'mqtt_connection', status: 'offline' })
   })
 
-  client.on('message', (topic, payload) => {
+  client.on('message', (topic, payload, packet) => {
     if (matchesTopic(deps.topics.measurementFilter, topic)) {
-      void handleMeasurement(topic, payload)
+      void handleMeasurement(topic, payload, { qos: packet.qos, retain: packet.retain })
     } else if (matchesTopic(deps.topics.commandAckFilter, topic)) {
       void handleCommandAck(topic, payload)
     } else {

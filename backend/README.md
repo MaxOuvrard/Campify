@@ -7,7 +7,7 @@ API Fastify (TypeScript) en architecture hexagonale simplifiée. Voir
 ## Prérequis
 
 - Node.js 20+
-- Docker (pour Postgres + Mosquitto en local, via `docker-compose.yml`)
+- Docker (pour PostgreSQL/TimescaleDB, MongoDB + Mosquitto en local, via `docker-compose.yml`)
 
 ## Démarrage
 
@@ -22,8 +22,8 @@ cp .env.example .env   # ajuster si besoin
 docker run --rm -v "$(pwd):/mosquitto" eclipse-mosquitto:2 \
   mosquitto_passwd -b -c /mosquitto/mosquitto.passwd backend changeme-local-only
 
-docker compose up -d   # Postgres (5432), Mosquitto (1883), Loki/Promtail/Grafana (3001)
-npx prisma migrate dev # crée le schéma en base
+docker compose up -d   # PostgreSQL+TimescaleDB (5432), MongoDB (27017), Mosquitto (1883), Loki/Promtail/Grafana (3001)
+npx prisma migrate dev # crée le schéma en base (dont l'hypertable Measurement — nécessite l'image TimescaleDB du compose)
 npx prisma db seed     # salles/devices de démo + utilisateur demo@campify.local
 npm run dev             # API — lecture base vérifiée + publication de commandes
 npm run ingester        # 2e terminal — indispensable, voir ci-dessous
@@ -32,9 +32,9 @@ npm run worker          # 3e terminal — indispensable, voir ci-dessous
 
 ⚠️ **`npm run ingester` et `npm run worker` sont obligatoires, pas
 optionnels** — depuis les ADR 0011/0012, `npm run dev` (l'API) ne touche
-plus du tout à MQTT ni à la base brute. Sans l'ingester, aucune mesure
-n'est même reçue ; sans le worker, ce que l'ingester écrit en base brute
-n'est jamais dédupliqué/consolidé en base vérifiée — dans les deux cas,
+plus du tout à MQTT ni au journal brut. Sans l'ingester, aucune mesure
+n'est même reçue ; sans le worker, ce que l'ingester écrit dans MongoDB
+n'est jamais décodé/dédupliqué/consolidé en base vérifiée — dans les deux cas,
 l'API renverrait toujours une liste vide. Avec `docker compose up -d
 --build` (plus bas), les services `ingester` et `worker` démarrent
 automatiquement avec le reste — pas d'action manuelle dans ce cas.
@@ -89,7 +89,7 @@ simule un capteur qui s'arrête sans déconnexion propre.
 
 `docker compose up -d --build` démarre aussi l'API, l'ingester et le
 worker (trois conteneurs buildés depuis le même `Dockerfile`), en plus de
-Postgres, TimescaleDB et Mosquitto — pratique pour tester l'image sans
+PostgreSQL (TimescaleDB), MongoDB et Mosquitto — pratique pour tester l'image sans
 environnement Node local. Le conteneur `backend` applique les migrations
 (`prisma migrate deploy`) au démarrage ; `ingester`/`worker` ne les
 relancent pas (ils attendent juste que `backend` soit démarré). Il faut
@@ -104,16 +104,18 @@ une mesure traverse trois process séparés, chacun pouvant tomber ou
 saturer sans affecter les deux autres :
 
 1. **Ingester** (`npm run ingester`, service `ingester`) — seul abonné
-   MQTT (mesures + accusés de commande). Écrit en base brute
-   (TimescaleDB) et s'arrête là, aucune décision métier. Peut tourner en
+   MQTT (mesures + accusés de commande). Journalise chaque
+   message tel quel dans MongoDB (collection `raw_events`) et s'arrête là :
+   aucun parsing, aucune décision métier. Peut tourner en
    plusieurs instances (`docker compose up -d --scale ingester=3`) :
    souscription partagée (`MQTT_SHARED_GROUP`, déjà positionné dans
    `docker-compose.yml`) — chaque message n'est alors traité que par une
    seule instance, jamais dupliqué vers toutes.
-2. **Worker** (`npm run worker`, service `worker`) — interroge la base
-   brute toutes les `CONSOLIDATION_POLL_INTERVAL_MS` (3s par défaut) pour
-   ce qui n'a pas encore été traité, applique dédup/plausibilité, écrit en
-   base vérifiée (PostgreSQL) si accepté.
+2. **Worker** (`npm run worker`, service `worker`) — relit le journal
+   MongoDB depuis son curseur toutes les `CONSOLIDATION_POLL_INTERVAL_MS`
+   (3s par défaut), décode, applique dédup/plausibilité et écrit en base
+   vérifiée (TimescaleDB) si accepté ; ce qui est illisible va dans la
+   collection `dead_letters`. **Une seule instance** (l'ordre compte).
 3. **API** (`npm run dev`, service `backend`) — ne lit que la base
    vérifiée. Garde un client MQTT, mais uniquement pour publier des
    commandes (`POST /devices/:id/commands`), jamais pour s'abonner.

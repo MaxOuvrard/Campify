@@ -77,3 +77,11 @@ courant.
 - Persiste uniquement pour le broker **local** que nous contrôlons ; le
   comportement du broker de démonstration du kit (VPS partagé) sur ce
   point n'a pas été vérifié.
+
+## Limite à connaître
+
+mqtt.js (MQTT 3.1.1) acquitte automatiquement un message auprès du broker
+avant la fin du traitement asynchrone du handler. QoS 1 + session
+persistante couvrent donc la coupure de connexion, pas un crash du process
+entre l'acquittement et l'écriture dans le journal : ce message-là est
+perdu. Voir les limites de l'[ADR 0013](0013-journal-brut-mongodb-et-base-verifiee-timescaledb.md).

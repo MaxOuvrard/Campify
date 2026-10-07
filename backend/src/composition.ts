@@ -4,11 +4,13 @@ import { loadConfig } from './shared/config'
 import { logger } from './shared/logger'
 import { createMqttTopics } from './shared/mqttTopics'
 import { createPrismaClient } from './infra/db/prismaClient'
-import { createRawPrismaClient } from './infra/db/raw/rawPrismaClient'
+import { createMongoConnection } from './infra/mongo/mongoClient'
+import { MongoRawEventRepository } from './infra/mongo/MongoRawEventRepository'
+import { MongoConsolidationCheckpointRepository } from './infra/mongo/MongoConsolidationCheckpointRepository'
+import { MongoDeadLetterRepository } from './infra/mongo/MongoDeadLetterRepository'
 import { PrismaRoomRepository } from './infra/db/PrismaRoomRepository'
 import { PrismaDeviceRepository } from './infra/db/PrismaDeviceRepository'
 import { PrismaMeasurementRepository } from './infra/db/PrismaMeasurementRepository'
-import { PrismaRawMeasurementRepository } from './infra/db/raw/PrismaRawMeasurementRepository'
 import { PrismaCommandRepository } from './infra/db/PrismaCommandRepository'
 import { PrismaUserRepository } from './infra/db/PrismaUserRepository'
 import { MqttCommandPublisher } from './infra/mqtt/MqttCommandPublisher'
@@ -45,8 +47,8 @@ export interface Application {
 }
 
 /**
- * Process API : sert le HTTP (lecture base vérifiée uniquement, jamais la
- * base brute) et publie les commandes sortantes. Depuis l'ADR 0012, il ne
+ * Process API : sert le HTTP (lecture base vérifiée uniquement, jamais le
+ * journal brut) et publie les commandes sortantes. Depuis l'ADR 0012, il ne
  * s'abonne plus à rien côté MQTT — c'est le rôle de `startIngester`. Le
  * client MQTT gardé ici ne sert qu'à publier (`POST /devices/:id/commands`),
  * donc pas de session persistante ni de `clientId` fixe nécessaire : rien
@@ -99,8 +101,9 @@ export interface IngesterApplication {
 
 /**
  * Process ingester (ADR 0012) : seul abonné aux mesures/accusés MQTT,
- * écrit en base brute (`recordRaw`) et acquitte les commandes — jamais la
- * base vérifiée directement. Session persistante (`clean: false`) pour
+ * journalise chaque message de mesure tel quel dans MongoDB (aucune
+ * interprétation, ADR 0013) et acquitte les commandes — il ne produit
+ * jamais de mesure vérifiée. Session persistante (`clean: false`) pour
  * rattraper ce qui a été publié pendant une coupure (voir ADR 0010) ; le
  * `clientId` est dérivé du hostname du conteneur plutôt que fixe en dur,
  * pour que plusieurs instances (plusieurs replicas Docker) aient chacune
@@ -118,20 +121,16 @@ export async function startIngester(): Promise<IngesterApplication> {
   const topics = createMqttTopics(config.MQTT_TOPIC_PREFIX)
 
   const prisma = createPrismaClient()
-  const rawPrisma = createRawPrismaClient()
+  const mongo = createMongoConnection(config.MONGO_URL)
   const devices = new PrismaDeviceRepository(prisma)
-  const measurements = new PrismaMeasurementRepository(prisma)
-  const rawMeasurements = new PrismaRawMeasurementRepository(rawPrisma)
+  const rawEvents = new MongoRawEventRepository(mongo.db)
+  await rawEvents.ensureIndexes(config.RAW_EVENTS_RETENTION_DAYS)
   const commands = new PrismaCommandRepository(prisma)
 
   const clientId = `campify-ingester-${hostname()}`
   const mqttClient = mqtt.connect(config.MQTT_URL, { clientId, clean: false })
   const publisher = new MqttCommandPublisher(mqttClient, topics)
 
-  // `recordRaw()` est le seul appelé ici (jamais `consolidate()`, donc
-  // jamais besoin des seuils d'alerte/plausibilité) ; `measurements` n'est
-  // requis que par la signature du constructeur.
-  const ingestion = new MeasurementIngestionService(measurements, rawMeasurements, logger)
   // `dispatch()` n'est jamais appelé depuis l'ingester (seul `acknowledge()`
   // l'est, câblé sur l'accusé MQTT) — le publisher est quand même requis
   // par le constructeur de CommandService.
@@ -139,7 +138,7 @@ export async function startIngester(): Promise<IngesterApplication> {
 
   attachMqttSubscriptions(mqttClient, {
     topics,
-    ingestion,
+    rawEvents,
     commandService,
     logger,
     qos: config.MQTT_QOS,
@@ -149,7 +148,7 @@ export async function startIngester(): Promise<IngesterApplication> {
   const stop = async (): Promise<void> => {
     mqttClient.end()
     await prisma.$disconnect()
-    await rawPrisma.$disconnect()
+    await mongo.client.close()
   }
 
   return { mqttClient, stop }
@@ -161,33 +160,41 @@ export interface WorkerApplication {
 }
 
 /**
- * Process séparé (ADR 0011) : consolide en continu ce que l'ingester a
- * laissé en attente dans la base brute, sans jamais partager de process
+ * Process séparé (ADR 0011, ADR 0013) : consolide en continu le journal brut
+ * MongoDB que l'ingester alimente, à partir de son curseur, sans jamais partager de process
  * avec lui ni avec l'API — un pic d'ingestion MQTT ne peut donc pas
  * ralentir les réponses de l'API, et inversement.
  */
 export async function startWorker(): Promise<WorkerApplication> {
   const config = loadConfig()
+  const topics = createMqttTopics(config.MQTT_TOPIC_PREFIX)
 
   const prisma = createPrismaClient()
-  const rawPrisma = createRawPrismaClient()
+  const mongo = createMongoConnection(config.MONGO_URL)
   const measurements = new PrismaMeasurementRepository(prisma)
-  const rawMeasurements = new PrismaRawMeasurementRepository(rawPrisma)
+  const rawEvents = new MongoRawEventRepository(mongo.db)
+  const checkpoints = new MongoConsolidationCheckpointRepository(mongo.db)
+  const deadLetters = new MongoDeadLetterRepository(mongo.db)
 
-  const ingestion = new MeasurementIngestionService(measurements, rawMeasurements, logger, alertThresholds, plausibilityRanges)
+  const ingestion = new MeasurementIngestionService(measurements, logger, alertThresholds, plausibilityRanges)
 
   const stopPolling = startConsolidationPolling({
+    topics,
     ingestion,
-    rawMeasurements,
+    rawEvents,
+    checkpoints,
+    deadLetters,
     logger,
+    consumer: 'measurements-worker',
     intervalMs: config.CONSOLIDATION_POLL_INTERVAL_MS,
-    batchSize: config.CONSOLIDATION_BATCH_SIZE
+    batchSize: config.CONSOLIDATION_BATCH_SIZE,
+    settleMs: config.CONSOLIDATION_SETTLE_MS
   })
 
   const stop = async (): Promise<void> => {
     stopPolling()
     await prisma.$disconnect()
-    await rawPrisma.$disconnect()
+    await mongo.client.close()
   }
 
   return { prisma, stop }

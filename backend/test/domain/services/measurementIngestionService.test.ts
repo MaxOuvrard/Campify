@@ -2,17 +2,16 @@ import { test } from 'node:test'
 import * as assert from 'node:assert'
 import { MeasurementIngestionService } from '../../../src/domain/services/MeasurementIngestionService'
 import { InMemoryDeviceRepository, InMemoryMeasurementRepository } from '../../fakes/inMemoryRepositories'
-import { FakeLogger, FakeRawMeasurementRepository } from '../../fakes/testDoubles'
+import { FakeLogger } from '../../fakes/testDoubles'
 
 test('ingests the first measurement and makes it the device latest received measurement', async () => {
   const devices = new InMemoryDeviceRepository()
   const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
   const measurements = new InMemoryMeasurementRepository()
-  const rawMeasurements = new FakeRawMeasurementRepository()
   const logger = new FakeLogger()
 
-  const service = new MeasurementIngestionService(measurements, rawMeasurements, logger)
-  const result = await service.ingest({ deviceId: device.id, type: 'temperature', value: 21, timestamp: new Date('2024-01-01T00:00:00Z') })
+  const service = new MeasurementIngestionService(measurements, logger)
+  const result = await service.consolidate({ deviceId: device.id, type: 'temperature', value: 21, timestamp: new Date('2024-01-01T00:00:00Z') })
 
   assert.equal(result.accepted, true)
   assert.equal(measurements.measurements.length, 1)
@@ -24,11 +23,10 @@ test('logs a successful ingestion with the MQTT messageId as correlation eventId
   const devices = new InMemoryDeviceRepository()
   const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
   const measurements = new InMemoryMeasurementRepository()
-  const rawMeasurements = new FakeRawMeasurementRepository()
   const logger = new FakeLogger()
-  const service = new MeasurementIngestionService(measurements, rawMeasurements, logger)
+  const service = new MeasurementIngestionService(measurements, logger)
 
-  await service.ingest({ deviceId: device.id, type: 'temperature', value: 21, timestamp: new Date('2024-01-01T00:00:00Z'), messageId: 'msg-42' })
+  await service.consolidate({ deviceId: device.id, type: 'temperature', value: 21, timestamp: new Date('2024-01-01T00:00:00Z'), messageId: 'msg-42' })
 
   const entry = logger.entries.find((e) => e.level === 'info' && e.msg === 'measurement ingested')
   assert.ok(entry)
@@ -37,15 +35,14 @@ test('logs a successful ingestion with the MQTT messageId as correlation eventId
   assert.equal(entry?.meta?.status, 'ingested')
 })
 
-test('generates an eventId when no messageId is provided, and reuses it across the rejection log', async () => {
+test('falls back to a placeholder eventId when no messageId is provided', async () => {
   const devices = new InMemoryDeviceRepository()
   const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
   const measurements = new InMemoryMeasurementRepository()
-  const rawMeasurements = new FakeRawMeasurementRepository()
   const logger = new FakeLogger()
-  const service = new MeasurementIngestionService(measurements, rawMeasurements, logger, [], [{ type: 'temperature', min: -40, max: 85 }])
+  const service = new MeasurementIngestionService(measurements, logger, [], [{ type: 'temperature', min: -40, max: 85 }])
 
-  await service.ingest({ deviceId: device.id, type: 'temperature', value: 999, timestamp: new Date('2024-01-01T00:00:00Z') })
+  await service.consolidate({ deviceId: device.id, type: 'temperature', value: 999, timestamp: new Date('2024-01-01T00:00:00Z') })
 
   const entry = logger.entries.find((e) => e.level === 'warn' && e.msg === 'measurement rejected')
   assert.ok(entry)
@@ -57,13 +54,12 @@ test('rejects a duplicate measurement and logs a warning', async () => {
   const devices = new InMemoryDeviceRepository()
   const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
   const measurements = new InMemoryMeasurementRepository()
-  const rawMeasurements = new FakeRawMeasurementRepository()
   const logger = new FakeLogger()
-  const service = new MeasurementIngestionService(measurements, rawMeasurements, logger)
+  const service = new MeasurementIngestionService(measurements, logger)
 
   const timestamp = new Date('2024-01-01T00:00:00Z')
-  await service.ingest({ deviceId: device.id, type: 'temperature', value: 21, timestamp })
-  const result = await service.ingest({ deviceId: device.id, type: 'temperature', value: 21, timestamp })
+  await service.consolidate({ deviceId: device.id, type: 'temperature', value: 21, timestamp })
+  const result = await service.consolidate({ deviceId: device.id, type: 'temperature', value: 21, timestamp })
 
   assert.deepStrictEqual(result, { accepted: false, reason: 'duplicate' })
   assert.equal(measurements.measurements.length, 1)
@@ -74,78 +70,25 @@ test('logs a threshold alert when a measurement exceeds its bounds', async () =>
   const devices = new InMemoryDeviceRepository()
   const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
   const measurements = new InMemoryMeasurementRepository()
-  const rawMeasurements = new FakeRawMeasurementRepository()
   const logger = new FakeLogger()
-  const service = new MeasurementIngestionService(measurements, rawMeasurements, logger, [{ type: 'temperature', max: 25 }])
+  const service = new MeasurementIngestionService(measurements, logger, [{ type: 'temperature', max: 25 }])
 
-  await service.ingest({ deviceId: device.id, type: 'temperature', value: 30, timestamp: new Date('2024-01-01T00:00:00Z') })
+  await service.consolidate({ deviceId: device.id, type: 'temperature', value: 30, timestamp: new Date('2024-01-01T00:00:00Z') })
 
   assert.ok(logger.entries.some((e) => e.level === 'warn' && e.msg === 'threshold alert'))
 })
 
-test('records every measurement in the raw store, including one rejected as duplicate', async () => {
+test('rejects an implausible value', async () => {
   const devices = new InMemoryDeviceRepository()
   const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
   const measurements = new InMemoryMeasurementRepository()
-  const rawMeasurements = new FakeRawMeasurementRepository()
   const logger = new FakeLogger()
-  const service = new MeasurementIngestionService(measurements, rawMeasurements, logger)
+  const service = new MeasurementIngestionService(measurements, logger, [], [{ type: 'temperature', min: -40, max: 85 }])
 
-  const timestamp = new Date('2024-01-01T00:00:00Z')
-  await service.ingest({ deviceId: device.id, type: 'temperature', value: 21, timestamp })
-  await service.ingest({ deviceId: device.id, type: 'temperature', value: 21, timestamp })
-
-  // La base vérifiée n'a qu'une mesure (le doublon a été rejeté), mais la
-  // base brute a bien enregistré les deux tentatives, sans filtre.
-  assert.equal(measurements.measurements.length, 1)
-  assert.equal(rawMeasurements.recorded.length, 2)
-})
-
-test('rejects ingestion when the raw store fails to write (verified store depends on raw)', async () => {
-  const devices = new InMemoryDeviceRepository()
-  const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
-  const measurements = new InMemoryMeasurementRepository()
-  const rawMeasurements = new FakeRawMeasurementRepository()
-  rawMeasurements.failNext = true
-  const logger = new FakeLogger()
-  const service = new MeasurementIngestionService(measurements, rawMeasurements, logger)
-
-  const result = await service.ingest({ deviceId: device.id, type: 'temperature', value: 21, timestamp: new Date('2024-01-01T00:00:00Z') })
-
-  assert.deepStrictEqual(result, { accepted: false, reason: 'raw_unavailable' })
-  assert.equal(measurements.measurements.length, 0)
-  assert.ok(logger.entries.some((e) => e.level === 'warn' && e.msg === 'failed to record raw measurement'))
-})
-
-test('rejects ingestion when the raw store cannot be read back after writing', async () => {
-  const devices = new InMemoryDeviceRepository()
-  const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
-  const measurements = new InMemoryMeasurementRepository()
-  const rawMeasurements = new FakeRawMeasurementRepository()
-  rawMeasurements.vanishOnReadBack = true
-  const logger = new FakeLogger()
-  const service = new MeasurementIngestionService(measurements, rawMeasurements, logger)
-
-  const result = await service.ingest({ deviceId: device.id, type: 'temperature', value: 21, timestamp: new Date('2024-01-01T00:00:00Z') })
-
-  assert.deepStrictEqual(result, { accepted: false, reason: 'raw_unavailable' })
-  assert.equal(measurements.measurements.length, 0)
-  assert.ok(logger.entries.some((e) => e.level === 'warn' && e.msg === 'raw measurement not found on read-back'))
-})
-
-test('rejects an implausible value but still records it in the raw store', async () => {
-  const devices = new InMemoryDeviceRepository()
-  const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
-  const measurements = new InMemoryMeasurementRepository()
-  const rawMeasurements = new FakeRawMeasurementRepository()
-  const logger = new FakeLogger()
-  const service = new MeasurementIngestionService(measurements, rawMeasurements, logger, [], [{ type: 'temperature', min: -40, max: 85 }])
-
-  const result = await service.ingest({ deviceId: device.id, type: 'temperature', value: 999, timestamp: new Date('2024-01-01T00:00:00Z') })
+  const result = await service.consolidate({ deviceId: device.id, type: 'temperature', value: 999, timestamp: new Date('2024-01-01T00:00:00Z') })
 
   assert.deepStrictEqual(result, { accepted: false, reason: 'implausible_value' })
   assert.equal(measurements.measurements.length, 0)
-  assert.equal(rawMeasurements.recorded.length, 1)
   assert.ok(logger.entries.some((e) => e.level === 'warn' && e.msg === 'measurement rejected' && e.meta?.reason === 'implausible_value'))
 })
 
@@ -153,69 +96,13 @@ test('does not let an implausible value overwrite the current latest measurement
   const devices = new InMemoryDeviceRepository()
   const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
   const measurements = new InMemoryMeasurementRepository()
-  const rawMeasurements = new FakeRawMeasurementRepository()
   const logger = new FakeLogger()
-  const service = new MeasurementIngestionService(measurements, rawMeasurements, logger, [], [{ type: 'temperature', min: -40, max: 85 }])
+  const service = new MeasurementIngestionService(measurements, logger, [], [{ type: 'temperature', min: -40, max: 85 }])
 
-  await service.ingest({ deviceId: device.id, type: 'temperature', value: 21, timestamp: new Date('2024-01-01T00:00:00Z') })
-  await service.ingest({ deviceId: device.id, type: 'temperature', value: 999, timestamp: new Date('2024-01-01T00:01:00Z') })
+  await service.consolidate({ deviceId: device.id, type: 'temperature', value: 21, timestamp: new Date('2024-01-01T00:00:00Z') })
+  await service.consolidate({ deviceId: device.id, type: 'temperature', value: 999, timestamp: new Date('2024-01-01T00:01:00Z') })
 
   const latest = await measurements.findLatestByDevice(device.id, 'temperature')
   assert.equal(latest?.value, 21)
 })
 
-test('recordRaw() only writes to the raw store, never to the verified store', async () => {
-  const devices = new InMemoryDeviceRepository()
-  const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
-  const measurements = new InMemoryMeasurementRepository()
-  const rawMeasurements = new FakeRawMeasurementRepository()
-  const logger = new FakeLogger()
-  const service = new MeasurementIngestionService(measurements, rawMeasurements, logger)
-
-  const raw = await service.recordRaw({ deviceId: device.id, type: 'temperature', value: 21, timestamp: new Date('2024-01-01T00:00:00Z') })
-
-  assert.ok(raw)
-  assert.equal(raw?.consolidatedAt, null)
-  assert.equal(rawMeasurements.recorded.length, 1)
-  assert.equal(measurements.measurements.length, 0)
-})
-
-test('consolidate() decides a raw row already on file and marks it consolidated regardless of outcome', async () => {
-  const devices = new InMemoryDeviceRepository()
-  const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
-  const measurements = new InMemoryMeasurementRepository()
-  const rawMeasurements = new FakeRawMeasurementRepository()
-  const logger = new FakeLogger()
-  const service = new MeasurementIngestionService(measurements, rawMeasurements, logger)
-
-  const raw = await service.recordRaw({ deviceId: device.id, type: 'temperature', value: 21, timestamp: new Date('2024-01-01T00:00:00Z') })
-  assert.ok(raw)
-
-  // Tant que le worker ne l'a pas encore consolidée, une ligne brute reste
-  // "en attente" — c'est elle que findUnconsolidated() renverrait.
-  assert.equal((await rawMeasurements.findUnconsolidated(10)).length, 1)
-
-  const result = await service.consolidate(raw!)
-
-  assert.equal(result.accepted, true)
-  assert.equal(measurements.measurements.length, 1)
-  // Consolidée : le worker ne la reprendra plus jamais, qu'elle ait été
-  // acceptée ou rejetée.
-  assert.equal((await rawMeasurements.findUnconsolidated(10)).length, 0)
-})
-
-test('the verified measurement reflects what was read back from the raw store, not the original input', async () => {
-  const devices = new InMemoryDeviceRepository()
-  const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
-  const measurements = new InMemoryMeasurementRepository()
-  const rawMeasurements = new FakeRawMeasurementRepository()
-  const logger = new FakeLogger()
-  const service = new MeasurementIngestionService(measurements, rawMeasurements, logger)
-
-  const result = await service.ingest({ deviceId: device.id, type: 'temperature', value: 21, unit: '°C', timestamp: new Date('2024-01-01T00:00:00Z'), messageId: 'msg-1' })
-
-  assert.equal(result.accepted, true)
-  assert.equal(rawMeasurements.recorded.length, 1)
-  assert.equal(result.measurement?.value, rawMeasurements.recorded[0].value)
-  assert.equal(result.measurement?.messageId, rawMeasurements.recorded[0].messageId)
-})

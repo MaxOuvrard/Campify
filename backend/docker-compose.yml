@@ -1,6 +1,12 @@
 services:
+  # Base vérifiée (ADR 0013) : PostgreSQL + extension TimescaleDB. Les
+  # tables relationnelles (Room, Device, User, Command) y vivent comme
+  # avant ; `Measurement` y est une hypertable. `shared_preload_libraries`
+  # est passé explicitement : l'image ne le configure qu'à l'initialisation
+  # d'un volume vide, pas sur un volume PostgreSQL existant.
   postgres:
-    image: postgres:16-alpine
+    image: timescale/timescaledb:latest-pg16
+    command: ['postgres', '-c', 'shared_preload_libraries=timescaledb']
     environment:
       POSTGRES_USER: campify
       POSTGRES_PASSWORD: campify
@@ -10,19 +16,15 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
 
-  # Base brute (landing zone) pour les mesures : reçoit tout, sans filtre,
-  # avant que le domaine ne décide quoi retenir dans postgres/campify. Voir
-  # ADR 0005.
-  timescaledb:
-    image: timescale/timescaledb:latest-pg16
-    environment:
-      POSTGRES_USER: campify
-      POSTGRES_PASSWORD: campify
-      POSTGRES_DB: campify_raw
+  # Journal brut (ADR 0013) : un document par message MQTT reçu, tel quel,
+  # avant tout parsing/dédup. Port lié à localhost seulement : pas
+  # d'authentification sur cette instance locale de démo.
+  mongo:
+    image: mongo:7
     ports:
-      - '5433:5432'
+      - '127.0.0.1:27017:27017'
     volumes:
-      - timescale-data:/var/lib/postgresql/data
+      - mongo-data:/data/db
 
   mosquitto:
     image: eclipse-mosquitto:2
@@ -36,14 +38,13 @@ services:
   # Process API (ADR 0012) : ne lit jamais que la base vérifiée. Le client
   # MQTT qu'il garde ne sert qu'à publier des commandes (POST
   # /devices/:id/commands) — plus aucun abonnement ici, donc pas de
-  # RAW_MEASUREMENTS_DATABASE_URL à lui donner.
+  # MONGO_URL à lui donner.
   backend:
     build: .
     env_file:
       - .env
     environment:
       DATABASE_URL: postgresql://campify:campify@postgres:5432/campify?schema=public
-      RAW_MEASUREMENTS_DATABASE_URL: postgresql://campify:campify@timescaledb:5432/campify_raw?schema=public
       # `localhost` dans .env vise l'hôte (usage `npm run dev` hors
       # conteneur) — depuis le conteneur backend, `localhost` se désigne
       # lui-même, pas mosquitto. Comme pour DATABASE_URL ci-dessus, on
@@ -57,11 +58,10 @@ services:
       - '3000:3000'
     depends_on:
       - postgres
-      - timescaledb
       - mosquitto
 
   # Ingester (ADR 0012) : seul abonné MQTT (mesures + accusés), écrit en
-  # base brute uniquement — jamais la base vérifiée directement. Session
+  # journal MongoDB uniquement — jamais de mesure vérifiée. Session
   # persistante (clientId dérivé du hostname du conteneur, voir
   # composition.ts), donc rattrape ce qui a été publié pendant une coupure
   # (ADR 0010). MQTT_SHARED_GROUP défini ici (contrairement à `.env`) pour
@@ -73,23 +73,23 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql://campify:campify@postgres:5432/campify?schema=public
-      RAW_MEASUREMENTS_DATABASE_URL: postgresql://campify:campify@timescaledb:5432/campify_raw?schema=public
+      MONGO_URL: mongodb://mongo:27017/campify_raw
       MQTT_URL: mqtt://backend:changeme-local-only@mosquitto:1883
       MQTT_SHARED_GROUP: campify-ingesters
       LOG_FORMAT: json
     command: ['node', 'dist/ingester.js']
     depends_on:
       - postgres
-      - timescaledb
+      - mongo
       - mosquitto
       - backend
 
   # Worker de consolidation (ADR 0011) : process à part, qui ne touche
   # jamais à MQTT ni à l'API — un pic d'ingestion MQTT ne peut donc plus
   # ralentir les réponses de l'API, puisqu'elles ne tournent plus dans le
-  # même process. Interroge la base brute toutes les
-  # CONSOLIDATION_POLL_INTERVAL_MS (3s par défaut) pour ce qui n'a pas
-  # encore été dédupliqué/écrit en base vérifiée. `depends_on: backend`
+  # même process. Relit le journal MongoDB depuis son curseur toutes les
+  # CONSOLIDATION_POLL_INTERVAL_MS (3s par défaut) et écrit en base vérifiée
+  # (TimescaleDB) ce qui passe plausibilité/dédup. UNE seule instance (ordre). `depends_on: backend`
   # uniquement pour s'assurer que les migrations (lancées par `backend` au
   # démarrage) sont déjà appliquées — le worker ne les relance pas lui-même.
   worker:
@@ -98,12 +98,12 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql://campify:campify@postgres:5432/campify?schema=public
-      RAW_MEASUREMENTS_DATABASE_URL: postgresql://campify:campify@timescaledb:5432/campify_raw?schema=public
+      MONGO_URL: mongodb://mongo:27017/campify_raw
       LOG_FORMAT: json
     command: ['node', 'dist/worker.js']
     depends_on:
       - postgres
-      - timescaledb
+      - mongo
       - backend
 
   # Stack de centralisation/visualisation des logs (scénario J3). Un seul
@@ -147,5 +147,5 @@ services:
 
 volumes:
   postgres-data:
-  timescale-data:
+  mongo-data:
   loki-data:

@@ -82,3 +82,12 @@ rejetée, elle est marquée consolidée dans les deux cas, pour ne jamais
 - Nouvelle migration `RawMeasurement.consolidatedAt` (nullable, indexée
   avec `receivedAt` pour que la requête de polling reste rapide même avec
   beaucoup de lignes déjà consolidées).
+
+## Mise à jour (ADR 0013)
+
+Le worker ne cherche plus les lignes `consolidatedAt IS NULL` : il lit le
+journal MongoDB depuis un curseur persisté, envoie les événements
+illisibles en dead-letter au lieu de bloquer la file, et enchaîne les lots
+pleins sans attendre. Le polling périodique et la règle « un seul
+traitement à la fois par device+type » restent. Voir
+[ADR 0013](0013-journal-brut-mongodb-et-base-verifiee-timescaledb.md).

@@ -44,8 +44,15 @@ model Device {
   @@index([roomId])
 }
 
+// Hypertable TimescaleDB partitionnée par `timestamp` (migration
+// 20261008090000_measurement_hypertable, ADR 0013). Prisma ne sait pas la
+// déclarer : elle est créée en SQL dans la migration. Contrainte
+// TimescaleDB : toute clé primaire doit contenir la colonne de partition,
+// d'où la clé composite (id, timestamp). `id` reste unique en pratique
+// (uuid), mais plus garanti par la base — ne jamais requêter par id seul
+// (aucun code ne le fait : lectures par device/type/période).
 model Measurement {
-  id         String   @id @default(uuid())
+  id         String   @default(uuid())
   device     Device   @relation(fields: [deviceId], references: [id])
   deviceId   String
   type       String
@@ -57,6 +64,7 @@ model Measurement {
   // détecter une retransmission exacte indépendamment du timestamp.
   messageId  String?
 
+  @@id([id, timestamp])
   @@index([deviceId, timestamp])
 }
 

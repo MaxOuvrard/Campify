@@ -3,10 +3,9 @@ import * as assert from 'node:assert'
 import { EventEmitter } from 'node:events'
 import { attachMqttSubscriptions } from '../../../src/driving/mqtt/client'
 import { createMqttTopics } from '../../../src/shared/mqttTopics'
-import { MeasurementIngestionService } from '../../../src/domain/services/MeasurementIngestionService'
 import { CommandService } from '../../../src/domain/services/CommandService'
-import { InMemoryDeviceRepository, InMemoryMeasurementRepository, InMemoryCommandRepository } from '../../fakes/inMemoryRepositories'
-import { FixedClock, FakeLogger, FakeMqttPublisher, FakeRawMeasurementRepository } from '../../fakes/testDoubles'
+import { InMemoryDeviceRepository, InMemoryCommandRepository } from '../../fakes/inMemoryRepositories'
+import { FixedClock, FakeLogger, FakeMqttPublisher, FakeRawEventRepository } from '../../fakes/testDoubles'
 import type { MqttClient } from 'mqtt'
 
 class FakeMqttClient extends EventEmitter {
@@ -21,15 +20,13 @@ class FakeMqttClient extends EventEmitter {
 
 function buildDeps(logger: FakeLogger, qos?: 0 | 1) {
   const devices = new InMemoryDeviceRepository()
-  const measurements = new InMemoryMeasurementRepository()
-  const rawMeasurements = new FakeRawMeasurementRepository()
-  const ingestion = new MeasurementIngestionService(measurements, rawMeasurements, logger)
+  const rawEvents = new FakeRawEventRepository()
   const commands = new InMemoryCommandRepository()
   const publisher = new FakeMqttPublisher()
   const clock = new FixedClock(new Date('2024-01-01T00:00:00Z'))
   const commandService = new CommandService(commands, devices, publisher, clock)
   const topics = createMqttTopics('campus')
-  return { topics, ingestion, commandService, logger, qos }
+  return { topics, rawEvents, commandService, logger, qos }
 }
 
 test('subscribes with the configured QoS and logs a connected status on connect', () => {
@@ -73,10 +70,13 @@ test('still routes an incoming message to the right handler when subscribed via 
     observed_at: '2024-01-01T00:00:00.000Z',
     temperature: { value: 21, unit: '°C' }
   })
-  client.emit('message', 'campus/v1/devices/sensor-001/telemetry', payload)
+  client.emit('message', 'campus/v1/devices/sensor-001/telemetry', Buffer.from(payload), { qos: 1, retain: false })
   await new Promise((resolve) => setImmediate(resolve))
 
   assert.ok(!logger.entries.some((e) => e.msg === 'mqtt message on unrecognized topic'))
+  assert.equal(deps.rawEvents.events.length, 1)
+  assert.equal(deps.rawEvents.events[0].topic, 'campus/v1/devices/sensor-001/telemetry')
+  assert.equal(deps.rawEvents.events[0].qos, 1)
 })
 
 test('defaults to QoS 0 when none is configured', () => {
