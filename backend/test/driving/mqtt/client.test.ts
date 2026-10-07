@@ -45,6 +45,40 @@ test('subscribes with the configured QoS and logs a connected status on connect'
   assert.ok(logger.entries.some((e) => e.level === 'info' && e.meta?.eventType === 'mqtt_connection' && e.meta?.status === 'connected'))
 })
 
+test('wraps subscription filters in $share/<group>/ when a shared group is configured, to split messages across several ingester instances', () => {
+  const logger = new FakeLogger()
+  const client = new FakeMqttClient()
+  attachMqttSubscriptions(client as unknown as MqttClient, { ...buildDeps(logger, 1), sharedGroup: 'campify-ingesters' })
+
+  client.emit('connect', { sessionPresent: false })
+
+  assert.deepEqual(client.subscribeCalls[0].topics, [
+    '$share/campify-ingesters/campus/v1/devices/+/telemetry',
+    '$share/campify-ingesters/campus/devices/+/commands/ack'
+  ])
+})
+
+test('still routes an incoming message to the right handler when subscribed via a shared group (real topic is never prefixed)', async () => {
+  const logger = new FakeLogger()
+  const client = new FakeMqttClient()
+  const deps = { ...buildDeps(logger, 1), sharedGroup: 'campify-ingesters' }
+  attachMqttSubscriptions(client as unknown as MqttClient, deps)
+  client.emit('connect', { sessionPresent: false })
+
+  const payload = JSON.stringify({
+    schema_version: 1,
+    message_id: 'shared-1',
+    device_id: 'sensor-001',
+    room_id: 'salle-203',
+    observed_at: '2024-01-01T00:00:00.000Z',
+    temperature: { value: 21, unit: '°C' }
+  })
+  client.emit('message', 'campus/v1/devices/sensor-001/telemetry', payload)
+  await new Promise((resolve) => setImmediate(resolve))
+
+  assert.ok(!logger.entries.some((e) => e.msg === 'mqtt message on unrecognized topic'))
+})
+
 test('defaults to QoS 0 when none is configured', () => {
   const logger = new FakeLogger()
   const client = new FakeMqttClient()

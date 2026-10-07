@@ -16,6 +16,22 @@ export interface MqttDrivingDeps {
    * comparer QoS 0 vs QoS 1 sur coupure/reprise du broker (scénario J3).
    */
   qos?: 0 | 1
+  /**
+   * Groupe de souscription partagée MQTT (`$share/<groupe>/<topic>`).
+   * Non défini = souscription classique, un seul abonné reçoit tout ce
+   * qu'il demande, chaque abonné supplémentaire reçoit SA PROPRE copie de
+   * chaque message (pas de répartition de charge). Défini = plusieurs
+   * instances de l'ingester (même groupe) se répartissent les messages,
+   * chacun reçu par une seule instance — voir ADR 0012. Ne change que le
+   * filtre envoyé au broker dans `subscribe()` : le topic réel d'un
+   * message reçu n'est jamais préfixé par `$share/...`, donc `matchesTopic`
+   * compare toujours aux filtres nus (`deps.topics.*`), inchangé.
+   */
+  sharedGroup?: string
+}
+
+function subscriptionFilter(filter: string, sharedGroup: string | undefined): string {
+  return sharedGroup ? `$share/${sharedGroup}/${filter}` : filter
 }
 
 /**
@@ -41,7 +57,7 @@ export function attachMqttSubscriptions(client: MqttClient, deps: MqttDrivingDep
       sessionResumed: packet.sessionPresent
     })
     client.subscribe(
-      [deps.topics.measurementFilter, deps.topics.commandAckFilter],
+      [subscriptionFilter(deps.topics.measurementFilter, deps.sharedGroup), subscriptionFilter(deps.topics.commandAckFilter, deps.sharedGroup)],
       { qos: deps.qos ?? 0 },
       (err) => {
         if (err) deps.logger.error('mqtt subscribe failed', { eventType: 'mqtt_connection', status: 'subscribe_failed', error: err.message })
