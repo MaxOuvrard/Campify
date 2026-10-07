@@ -84,6 +84,20 @@ export function fetchLatestMeasurements(token: string, roomId: string): Promise<
   return authorizedGet<LatestMeasurement[]>(`/rooms/${roomId}/measurements/latest`, token)
 }
 
+export interface HistoryPoint {
+  id: string
+  deviceId: string
+  type: string
+  value: number
+  unit: string | null
+  timestamp: string
+}
+
+/** Historique borné côté backend (fenêtre 24h par défaut, voir domain/services/history.ts) — toutes métriques du device confondues, triées du plus ancien au plus récent. */
+export function fetchDeviceHistory(token: string, deviceId: string): Promise<HistoryPoint[]> {
+  return authorizedGet<HistoryPoint[]>(`/devices/${deviceId}/measurements`, token)
+}
+
 export interface AssociatedDevice {
   id: string
   name: string

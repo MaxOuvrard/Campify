@@ -4,22 +4,15 @@ import { ApiError, fetchLatestMeasurements, LatestMeasurement, Room } from '../a
 import { readCache, writeCache } from '../storage/cache'
 import { useNetworkStatus } from '../hooks/useNetworkStatus'
 import { useAppForeground } from '../hooks/useAppForeground'
-import { formatDateTime } from '../utils/format'
+import { formatDateTime, metricLabel } from '../utils/format'
+import { HistoryTarget } from '../store/appStore'
 
 interface RoomDetailScreenProps {
   token: string
   room: Room
   onBack: () => void
   onScanDevice: () => void
-}
-
-const METRIC_LABELS: Record<string, string> = {
-  temperature: 'Température',
-  co2: 'CO₂'
-}
-
-function metricLabel(type: string): string {
-  return METRIC_LABELS[type] ?? type
+  onOpenHistory: (target: HistoryTarget) => void
 }
 
 interface DeviceGroup {
@@ -49,7 +42,7 @@ function groupByDevice(measurements: LatestMeasurement[]): DeviceGroup[] {
   return [...groups.values()].sort((a, b) => a.deviceName.localeCompare(b.deviceName))
 }
 
-export default function RoomDetailScreen({ token, room, onBack, onScanDevice }: RoomDetailScreenProps) {
+export default function RoomDetailScreen({ token, room, onBack, onScanDevice, onOpenHistory }: RoomDetailScreenProps) {
   const [measurements, setMeasurements] = useState<LatestMeasurement[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -155,9 +148,12 @@ export default function RoomDetailScreen({ token, room, onBack, onScanDevice }: 
                   <Text style={styles.deviceName}>{group.deviceName}</Text>
                   <View style={styles.metricsRow}>
                     {group.measurements.map((measurement, index) => (
-                      <View
+                      <TouchableOpacity
                         key={measurement.type}
                         style={[styles.metricColumn, index > 0 && styles.metricColumnDivider, !measurement.fresh && styles.metricColumnStale]}
+                        onPress={() =>
+                          onOpenHistory({ deviceId: group.deviceId, deviceName: group.deviceName, type: measurement.type })
+                        }
                       >
                         <View style={styles.cardHeader}>
                           <Text style={styles.metricLabel}>{metricLabel(measurement.type)}</Text>
@@ -174,7 +170,8 @@ export default function RoomDetailScreen({ token, room, onBack, onScanDevice }: 
                             <Text style={styles.staleBadgeText}>Capteur silencieux</Text>
                           </View>
                         )}
-                      </View>
+                        <Text style={styles.historyHint}>Voir l'historique ›</Text>
+                      </TouchableOpacity>
                     ))}
                   </View>
                 </View>
@@ -297,6 +294,11 @@ const styles = StyleSheet.create({
   metricDate: {
     fontSize: 12,
     color: '#888'
+  },
+  historyHint: {
+    fontSize: 11,
+    color: '#2563eb',
+    marginTop: 6
   },
   empty: {
     color: '#666',
