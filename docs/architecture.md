@@ -36,18 +36,27 @@ backend/src/
 │   └── mqtt/              # publisher MQTT (émission de commandes)
 │
 ├── driving/             # ce qui déclenche le domaine
-│   ├── mqtt/              # client mqtt.js, schémas Zod, handlers
-│   └── api/               # routes Fastify, auth JWT, RBAC
+│   ├── mqtt/              # client mqtt.js (souscription partagée), schémas Zod, handlers
+│   ├── api/               # routes Fastify, auth JWT, RBAC
+│   └── worker/            # poller de consolidation (process séparé, voir ADR 0011)
 │
 ├── composition.ts       # câblage : instancie adapters -> injecte dans les services
+├── index.ts             # point d'entrée du process API (lecture base vérifiée + publish commandes)
+├── ingester.ts           # point d'entrée du process ingester (seul abonné MQTT, voir ADR 0012)
+├── worker.ts             # point d'entrée du process worker de consolidation
 └── shared/              # logger (pino), config, erreurs typées, conventions MQTT
 ```
 
-Règle centrale : `driving/mqtt` et `driving/api` appellent le même
-domaine, jamais l'inverse, jamais l'un l'autre directement — ça évite de
-dupliquer les règles de fraîcheur/dédup/alerte entre l'entrée MQTT et la
-sortie API. Détail et justification dans
+Règle centrale : `driving/mqtt`, `driving/api` et `driving/worker`
+appellent tous le même domaine, jamais l'inverse, jamais l'un l'autre
+directement — ça évite de dupliquer les règles de fraîcheur/dédup/alerte
+entre les trois entrées. Détail et justification dans
 [docs/decisions/0001-architecture-hexagonale.md](decisions/0001-architecture-hexagonale.md).
+
+Trois process au total, chacun avec une seule responsabilité — API, ingester,
+worker — voir [ADR 0012](decisions/0012-ingester-separe-souscription-partagee.md)
+pour la séparation API/ingester et [ADR 0011](decisions/0011-worker-consolidation-polling.md)
+pour le worker.
 
 ## Schéma
 
@@ -55,33 +64,51 @@ sortie API. Détail et justification dans
 flowchart LR
     Device[Device IoT] -- mesures --> Broker[(Broker MQTT)]
     Broker -- ack commandes --> Device
-    Broker <--> MqttDriving[driving/mqtt]
-    MqttDriving --> Domain[domain/services]
-    Domain -- 1. écrit brut --> RawInfra[infra/db/raw - Prisma]
+    Broker <-. "$share/campify-ingesters/..." .-> MqttDriving["driving/mqtt (process ingester, 1..N instances)"]
+    MqttDriving -- recordRaw --> RawInfra[infra/db/raw - Prisma]
     RawInfra --> RawDB[(TimescaleDB - brute)]
-    RawInfra -- 2. relit --> Domain
-    Domain -- 3. si accepté --> Infra[infra/db - Prisma]
+
+    WorkerDriving["driving/worker (process séparé, poll ~3s)"] -- findUnconsolidated --> RawDB
+    WorkerDriving -- consolidate --> Infra[infra/db - Prisma]
     Infra --> DB[(PostgreSQL - vérifiée)]
-    Client[Client web/mobile] -- HTTP/JWT --> ApiDriving[driving/api]
-    ApiDriving --> Domain
+
+    Client[Client web/mobile] -- HTTP/JWT --> ApiDriving["driving/api (process API)"]
+    ApiDriving --> Infra
     Client -- cache local --> MobileCache[(AsyncStorage)]
-    Domain -- publish commande --> InfraMqtt[infra/mqtt]
+    ApiDriving -- publish commande --> InfraMqtt[infra/mqtt]
     InfraMqtt --> Broker
 ```
 
+Trois process distincts, jamais le même : **ingester** (abonné MQTT,
+potentiellement plusieurs instances via souscription partagée, voir
+[ADR 0012](decisions/0012-ingester-separe-souscription-partagee.md)),
+**worker** (consolidation, [ADR 0011](decisions/0011-worker-consolidation-polling.md)),
+**API** (HTTP, lecture base vérifiée uniquement + publication de
+commandes). Un pic de charge sur l'un ne ralentit jamais les deux autres.
+
 ## Persistance des mesures : base brute et base vérifiée
 
-Toute mesure entrante (MQTT ou API) passe par
-`MeasurementIngestionService.ingest()`, qui écrit dans **deux bases** :
+Toute mesure entrante passe par deux étapes séparées dans le temps, portées
+par deux process distincts — voir [ADR 0011](decisions/0011-worker-consolidation-polling.md)
+et [ADR 0012](decisions/0012-ingester-separe-souscription-partagee.md) :
 
-1. **Base brute** (TimescaleDB, port `RawMeasurementRepository`) — reçoit
-   systématiquement toute mesure entrante, sans filtre. C'est cette ligne,
-   relue juste après écriture, qui alimente la suite du traitement (pas la
-   donnée entrante en mémoire).
-2. **Base vérifiée** (PostgreSQL, port `MeasurementRepository`) — ne reçoit
-   que ce qui a passé la règle de déduplication/retard
+1. **Base brute** (TimescaleDB, port `RawMeasurementRepository`) — écrite
+   par `MeasurementIngestionService.recordRaw()`, appelé depuis
+   `driving/mqtt` dans le process **ingester** (séparé de l'API depuis
+   l'ADR 0012). Reçoit systématiquement toute mesure entrante, sans
+   filtre, et s'arrête là : aucune décision métier à cet endroit. Le
+   process API ne lit ni n'écrit jamais cette base.
+2. **Base vérifiée** (PostgreSQL, port `MeasurementRepository`) — écrite
+   par `MeasurementIngestionService.consolidate()`, appelé par le worker de
+   consolidation (`driving/worker`, **process séparé**, qui interroge la
+   base brute toutes les ~3s pour ce qui n'a pas encore été traité). Ne
+   reçoit que ce qui a passé la règle de déduplication/retard
    (`domain/services/dedup.ts`) ; c'est elle qui alimente l'API (dernière
    valeur, historique, présence).
+
+Chaque ligne de la base brute porte un `consolidatedAt`, renseigné par le
+worker une fois la décision prise (acceptée ou rejetée) — c'est ce qui lui
+permet de ne jamais retraiter deux fois la même ligne.
 
 Règle de déduplication/retard (`decideMeasurement`), appliquée à la
 dernière mesure connue pour un device+type :
@@ -152,14 +179,18 @@ Basculer à 0 pour le scénario J3 de comparaison QoS 0 vs QoS 1 sur
 coupure/reprise du broker.
 
 **QoS seul ne suffit pas** à éviter la perte pendant une coupure
-*backend* (par opposition à une coupure broker) : sans session
+*ingester* (par opposition à une coupure broker) : sans session
 persistante, le broker ne mémorise aucun abonnement pour un client
 déconnecté et ne met donc rien en attente pour lui, quel que soit le QoS
-de publication. `composition.ts` connecte le backend avec un `clientId`
-stable et `clean: false` précisément pour ça — voir
+de publication. `composition.ts` (`startIngester`) connecte l'ingester
+avec un `clientId` stable (dérivé du hostname du conteneur, voir
+[ADR 0012](decisions/0012-ingester-separe-souscription-partagee.md)) et
+`clean: false` précisément pour ça — voir
 [ADR 0010](decisions/0010-session-mqtt-persistante.md), qui documente la
 perte constatée avant ce réglage et sa disparition après, preuve à
-l'appui.
+l'appui. Le client MQTT du process API (publication de commandes
+uniquement) n'a pas besoin de cette session persistante : il ne s'abonne
+à rien, donc rien à rattraper pour lui.
 
 ## Logs structurés et corrélation
 
@@ -232,7 +263,9 @@ inversement. Détail et justification :
 | Plausibilité des mesures | `domain/services/plausibility.ts` | Bornes physiques par type de métrique, rejet avant la base vérifiée (trace conservée en base brute) |
 | Logs | Pino (JSON), `eventType`/`eventId`/`status`/`reason` | Corrélation d'une mesure de sa réception à son traitement |
 | Centralisation des logs | Loki + Promtail + Grafana (`docker-compose.yml`) | Dashboard provisionné, filtres par device/rejets/doublons/retard/MQTT — voir [ADR 0009](decisions/0009-stack-logs-centralises.md) |
-| Session MQTT backend | `clientId` stable + `clean: false` | Sans ça, QoS 1 seul ne suffit pas à survivre à une coupure backend — voir [ADR 0010](decisions/0010-session-mqtt-persistante.md) |
+| Session MQTT ingester | `clientId` dérivé du hostname + `clean: false` | Sans ça, QoS 1 seul ne suffit pas à survivre à une coupure — voir [ADR 0010](decisions/0010-session-mqtt-persistante.md) |
+| Ingestion MQTT | Process `ingester` séparé de l'API, souscription partagée (`$share/<groupe>/...`) | L'API ne touche plus jamais la base brute ; plusieurs instances de l'ingester se répartissent les messages (vérifié : 6 messages → 6 lignes avec 3 instances, pas 18) — voir [ADR 0012](decisions/0012-ingester-separe-souscription-partagee.md) |
+| Consolidation des mesures | Worker séparé, polling ~3s (`driving/worker`) | Dédup/écriture base vérifiée hors du process API — un pic MQTT ne ralentit plus les réponses API. Polling plutôt que Redis : pas de nouvelle techno, absorbe mieux les rafales — voir [ADR 0011](decisions/0011-worker-consolidation-polling.md) |
 | Tests | `node:test` + fakes en mémoire (backend), Jest + `jest-expo` (mobile) | Unitaires sur `domain/services`, intégration par adapter (Prisma, handler MQTT), coupure/retour réseau et reprise d'app côté mobile |
 | Infra | Docker Compose (Postgres, TimescaleDB, Mosquitto, Loki/Promtail/Grafana) | Un seul `docker compose up -d`, voir `backend/README.md` |
 

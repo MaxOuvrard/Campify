@@ -1,4 +1,5 @@
 import mqtt from 'mqtt'
+import { hostname } from 'node:os'
 import { loadConfig } from './shared/config'
 import { logger } from './shared/logger'
 import { createMqttTopics } from './shared/mqttTopics'
@@ -16,6 +17,7 @@ import { MeasurementIngestionService } from './domain/services/MeasurementIngest
 import { CommandService } from './domain/services/CommandService'
 import { DeviceAssociationService } from './domain/services/deviceAssociation'
 import { attachMqttSubscriptions } from './driving/mqtt/client'
+import { startConsolidationPolling } from './driving/worker/consolidationPoller'
 import { buildApiServer } from './driving/api/server'
 import type { AlertThreshold } from './domain/services/alerts'
 import type { PlausibilityRange } from './domain/services/plausibility'
@@ -42,35 +44,30 @@ export interface Application {
   stop: () => Promise<void>
 }
 
+/**
+ * Process API : sert le HTTP (lecture base vérifiée uniquement, jamais la
+ * base brute) et publie les commandes sortantes. Depuis l'ADR 0012, il ne
+ * s'abonne plus à rien côté MQTT — c'est le rôle de `startIngester`. Le
+ * client MQTT gardé ici ne sert qu'à publier (`POST /devices/:id/commands`),
+ * donc pas de session persistante ni de `clientId` fixe nécessaire : rien
+ * à "rattraper" pour un client qui ne fait que publier à la demande.
+ */
 export async function startApplication(): Promise<Application> {
   const config = loadConfig()
   const topics = createMqttTopics(config.MQTT_TOPIC_PREFIX)
 
   const prisma = createPrismaClient()
-  const rawPrisma = createRawPrismaClient()
   const rooms = new PrismaRoomRepository(prisma)
   const devices = new PrismaDeviceRepository(prisma)
   const measurements = new PrismaMeasurementRepository(prisma)
-  const rawMeasurements = new PrismaRawMeasurementRepository(rawPrisma)
   const commands = new PrismaCommandRepository(prisma)
   const users = new PrismaUserRepository(prisma)
 
-  // Session persistante (clientId stable + clean:false) : sans ça, le
-  // broker ne mémorise aucun abonnement pendant que le backend est
-  // déconnecté, et ne peut donc rien mettre en attente pour lui — même à
-  // QoS 1, les mesures publiées pendant une coupure backend sont perdues
-  // (constaté expérimentalement, voir docs/J3.md, scénario "backend
-  // indisponible"). Un seul backend actif à la fois : une deuxième
-  // instance avec le même clientId ferait déconnecter la première (limite
-  // acceptée pour une architecture mono-instance).
-  const mqttClient = mqtt.connect(config.MQTT_URL, { clientId: 'campify-backend', clean: false })
+  const mqttClient = mqtt.connect(config.MQTT_URL)
   const publisher = new MqttCommandPublisher(mqttClient, topics)
 
-  const ingestion = new MeasurementIngestionService(measurements, rawMeasurements, logger, alertThresholds, plausibilityRanges)
   const commandService = new CommandService(commands, devices, publisher, systemClock)
   const deviceAssociationService = new DeviceAssociationService(devices, rooms)
-
-  attachMqttSubscriptions(mqttClient, { topics, ingestion, commandService, logger, qos: config.MQTT_QOS })
 
   const api = buildApiServer({
     jwtSecret: config.JWT_SECRET,
@@ -90,8 +87,108 @@ export async function startApplication(): Promise<Application> {
     await api.close()
     mqttClient.end()
     await prisma.$disconnect()
-    await rawPrisma.$disconnect()
   }
 
   return { api, mqttClient, prisma, stop }
+}
+
+export interface IngesterApplication {
+  mqttClient: MqttClient
+  stop: () => Promise<void>
+}
+
+/**
+ * Process ingester (ADR 0012) : seul abonné aux mesures/accusés MQTT,
+ * écrit en base brute (`recordRaw`) et acquitte les commandes — jamais la
+ * base vérifiée directement. Session persistante (`clean: false`) pour
+ * rattraper ce qui a été publié pendant une coupure (voir ADR 0010) ; le
+ * `clientId` est dérivé du hostname du conteneur plutôt que fixe en dur,
+ * pour que plusieurs instances (plusieurs replicas Docker) aient chacune
+ * leur propre session stable, sans collision.
+ *
+ * S'abonne via une souscription partagée (`$share/<groupe>/...`, voir
+ * `driving/mqtt/client.ts`) quand `MQTT_SHARED_GROUP` est défini : chaque
+ * message n'est alors délivré qu'à UNE seule instance du groupe, pas à
+ * toutes — c'est ce qui permet de scaler horizontalement sans dupliquer
+ * l'ingestion. Vide par défaut pour ne pas risquer de casser une connexion
+ * vers un broker qui ne le supporterait pas (ex. kit VPS, non vérifié).
+ */
+export async function startIngester(): Promise<IngesterApplication> {
+  const config = loadConfig()
+  const topics = createMqttTopics(config.MQTT_TOPIC_PREFIX)
+
+  const prisma = createPrismaClient()
+  const rawPrisma = createRawPrismaClient()
+  const devices = new PrismaDeviceRepository(prisma)
+  const measurements = new PrismaMeasurementRepository(prisma)
+  const rawMeasurements = new PrismaRawMeasurementRepository(rawPrisma)
+  const commands = new PrismaCommandRepository(prisma)
+
+  const clientId = `campify-ingester-${hostname()}`
+  const mqttClient = mqtt.connect(config.MQTT_URL, { clientId, clean: false })
+  const publisher = new MqttCommandPublisher(mqttClient, topics)
+
+  // `recordRaw()` est le seul appelé ici (jamais `consolidate()`, donc
+  // jamais besoin des seuils d'alerte/plausibilité) ; `measurements` n'est
+  // requis que par la signature du constructeur.
+  const ingestion = new MeasurementIngestionService(measurements, rawMeasurements, logger)
+  // `dispatch()` n'est jamais appelé depuis l'ingester (seul `acknowledge()`
+  // l'est, câblé sur l'accusé MQTT) — le publisher est quand même requis
+  // par le constructeur de CommandService.
+  const commandService = new CommandService(commands, devices, publisher, systemClock)
+
+  attachMqttSubscriptions(mqttClient, {
+    topics,
+    ingestion,
+    commandService,
+    logger,
+    qos: config.MQTT_QOS,
+    sharedGroup: config.MQTT_SHARED_GROUP
+  })
+
+  const stop = async (): Promise<void> => {
+    mqttClient.end()
+    await prisma.$disconnect()
+    await rawPrisma.$disconnect()
+  }
+
+  return { mqttClient, stop }
+}
+
+export interface WorkerApplication {
+  prisma: PrismaClient
+  stop: () => Promise<void>
+}
+
+/**
+ * Process séparé (ADR 0011) : consolide en continu ce que l'ingester a
+ * laissé en attente dans la base brute, sans jamais partager de process
+ * avec lui ni avec l'API — un pic d'ingestion MQTT ne peut donc pas
+ * ralentir les réponses de l'API, et inversement.
+ */
+export async function startWorker(): Promise<WorkerApplication> {
+  const config = loadConfig()
+
+  const prisma = createPrismaClient()
+  const rawPrisma = createRawPrismaClient()
+  const measurements = new PrismaMeasurementRepository(prisma)
+  const rawMeasurements = new PrismaRawMeasurementRepository(rawPrisma)
+
+  const ingestion = new MeasurementIngestionService(measurements, rawMeasurements, logger, alertThresholds, plausibilityRanges)
+
+  const stopPolling = startConsolidationPolling({
+    ingestion,
+    rawMeasurements,
+    logger,
+    intervalMs: config.CONSOLIDATION_POLL_INTERVAL_MS,
+    batchSize: config.CONSOLIDATION_BATCH_SIZE
+  })
+
+  const stop = async (): Promise<void> => {
+    stopPolling()
+    await prisma.$disconnect()
+    await rawPrisma.$disconnect()
+  }
+
+  return { prisma, stop }
 }

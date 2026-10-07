@@ -9,8 +9,12 @@
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "ingester": "tsx watch src/ingester.ts",
+    "worker": "tsx watch src/worker.ts",
     "build": "tsc",
     "start": "node dist/index.js",
+    "ingester:start": "node dist/ingester.js",
+    "worker:start": "node dist/worker.js",
     "typecheck": "tsc --noEmit",
     "test": "npm run typecheck && tsc -p test/tsconfig.json && c8 node --test -r ts-node/register \"test/**/*.test.ts\"",
     "prisma:generate": "prisma generate && prisma generate --schema=prisma/raw/schema.prisma",
