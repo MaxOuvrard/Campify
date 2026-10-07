@@ -164,6 +164,46 @@ test('does not let an implausible value overwrite the current latest measurement
   assert.equal(latest?.value, 21)
 })
 
+test('recordRaw() only writes to the raw store, never to the verified store', async () => {
+  const devices = new InMemoryDeviceRepository()
+  const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
+  const measurements = new InMemoryMeasurementRepository()
+  const rawMeasurements = new FakeRawMeasurementRepository()
+  const logger = new FakeLogger()
+  const service = new MeasurementIngestionService(measurements, rawMeasurements, logger)
+
+  const raw = await service.recordRaw({ deviceId: device.id, type: 'temperature', value: 21, timestamp: new Date('2024-01-01T00:00:00Z') })
+
+  assert.ok(raw)
+  assert.equal(raw?.consolidatedAt, null)
+  assert.equal(rawMeasurements.recorded.length, 1)
+  assert.equal(measurements.measurements.length, 0)
+})
+
+test('consolidate() decides a raw row already on file and marks it consolidated regardless of outcome', async () => {
+  const devices = new InMemoryDeviceRepository()
+  const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
+  const measurements = new InMemoryMeasurementRepository()
+  const rawMeasurements = new FakeRawMeasurementRepository()
+  const logger = new FakeLogger()
+  const service = new MeasurementIngestionService(measurements, rawMeasurements, logger)
+
+  const raw = await service.recordRaw({ deviceId: device.id, type: 'temperature', value: 21, timestamp: new Date('2024-01-01T00:00:00Z') })
+  assert.ok(raw)
+
+  // Tant que le worker ne l'a pas encore consolidée, une ligne brute reste
+  // "en attente" — c'est elle que findUnconsolidated() renverrait.
+  assert.equal((await rawMeasurements.findUnconsolidated(10)).length, 1)
+
+  const result = await service.consolidate(raw!)
+
+  assert.equal(result.accepted, true)
+  assert.equal(measurements.measurements.length, 1)
+  // Consolidée : le worker ne la reprendra plus jamais, qu'elle ait été
+  // acceptée ou rejetée.
+  assert.equal((await rawMeasurements.findUnconsolidated(10)).length, 0)
+})
+
 test('the verified measurement reflects what was read back from the raw store, not the original input', async () => {
   const devices = new InMemoryDeviceRepository()
   const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })

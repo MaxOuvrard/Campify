@@ -66,7 +66,8 @@ export class FakeRawMeasurementRepository implements RawMeasurementRepository {
       unit: input.unit ?? null,
       timestamp: input.timestamp,
       messageId: input.messageId ?? null,
-      receivedAt: new Date()
+      receivedAt: new Date(),
+      consolidatedAt: null
     }
     this.recorded.push(raw)
     return raw
@@ -75,5 +76,19 @@ export class FakeRawMeasurementRepository implements RawMeasurementRepository {
   async findById(id: string): Promise<RawMeasurement | null> {
     if (this.vanishOnReadBack) return null
     return this.recorded.find((r) => r.id === id) ?? null
+  }
+
+  async findUnconsolidated(limit: number): Promise<RawMeasurement[]> {
+    return this.recorded
+      .filter((r) => r.consolidatedAt === null)
+      .sort((a, b) => a.receivedAt.getTime() - b.receivedAt.getTime())
+      .slice(0, limit)
+  }
+
+  async markConsolidated(ids: string[]): Promise<void> {
+    const idSet = new Set(ids)
+    for (const raw of this.recorded) {
+      if (idSet.has(raw.id)) raw.consolidatedAt = new Date()
+    }
   }
 }

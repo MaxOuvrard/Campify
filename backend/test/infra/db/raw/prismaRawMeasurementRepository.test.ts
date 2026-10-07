@@ -45,6 +45,24 @@ test(
       assert.equal(rows[0].type, 'temperature')
       assert.equal(rows[0].value, 21.7)
       assert.equal(rows[0].messageId, 'msg-1')
+      assert.equal(rows[0].consolidatedAt, null)
+
+      // Le worker de consolidation (ADR 0011) ne doit voir que les lignes
+      // pas encore traitées, puis ne plus jamais les revoir une fois
+      // marquées. `findUnconsolidated` est global (pas filtré par device) —
+      // sur une base avec beaucoup d'historique, on ne peut pas garantir
+      // que notre ligne apparaît dans une petite page triée par ancienneté,
+      // donc on vérifie via `findById` plutôt que via la présence dans la page.
+      const before = await repository.findById(created.id)
+      assert.equal(before?.consolidatedAt, null)
+
+      await repository.markConsolidated([created.id])
+      const after = await repository.findById(created.id)
+      assert.ok(after?.consolidatedAt instanceof Date)
+
+      // Sanity check : la méthode répond bien et exclut ce qui vient d'être marqué.
+      const stillPending = await repository.findUnconsolidated(5)
+      assert.ok(!stillPending.some((r) => r.id === created.id))
     } finally {
       await prisma.rawMeasurement.deleteMany({ where: { deviceId } })
       await prisma.$disconnect()

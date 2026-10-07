@@ -12,6 +12,7 @@ interface RawMeasurementRow {
   timestamp: Date
   messageId: string | null
   receivedAt: Date
+  consolidatedAt: Date | null
 }
 
 function toDomain(row: RawMeasurementRow): RawMeasurement {
@@ -38,5 +39,22 @@ export class PrismaRawMeasurementRepository implements RawMeasurementRepository 
   async findById(id: string): Promise<RawMeasurement | null> {
     const row = await this.prisma.rawMeasurement.findUnique({ where: { id } })
     return row ? toDomain(row) : null
+  }
+
+  async findUnconsolidated(limit: number): Promise<RawMeasurement[]> {
+    const rows = await this.prisma.rawMeasurement.findMany({
+      where: { consolidatedAt: null },
+      orderBy: { receivedAt: 'asc' },
+      take: limit
+    })
+    return rows.map(toDomain)
+  }
+
+  async markConsolidated(ids: string[]): Promise<void> {
+    if (ids.length === 0) return
+    await this.prisma.rawMeasurement.updateMany({
+      where: { id: { in: ids } },
+      data: { consolidatedAt: new Date() }
+    })
   }
 }

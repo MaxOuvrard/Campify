@@ -55,10 +55,12 @@ export function createMeasurementHandler(deps: MeasurementHandlerDeps) {
 
     for (const metric of extractMetrics(result.data)) {
       try {
-        // Le rejet éventuel (doublon, retard, valeur implausible, base brute
-        // indisponible) est déjà journalisé par MeasurementIngestionService,
-        // avec eventId de corrélation — pas de double log ici.
-        await deps.ingestion.ingest({
+        // Chemin rapide (ADR 0011) : écrit seulement en base brute, ne
+        // décide rien. Le rejet éventuel d'écriture brute est déjà journalisé
+        // par recordRaw(), avec eventId de corrélation — pas de double log
+        // ici. Dédup/plausibilité/écriture vérifiée sont traités plus tard,
+        // de façon asynchrone, par le worker de consolidation.
+        await deps.ingestion.recordRaw({
           deviceId,
           type: metric.type,
           value: metric.value,
@@ -67,7 +69,7 @@ export function createMeasurementHandler(deps: MeasurementHandlerDeps) {
           messageId: result.data.message_id
         })
       } catch (err) {
-        deps.logger.warn('failed to ingest measurement', {
+        deps.logger.warn('failed to record raw measurement', {
           eventType: MEASUREMENT_EVENT_TYPE,
           topic,
           deviceId,
