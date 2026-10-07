@@ -2,8 +2,10 @@
 
 ## Statut
 
-En cours (J4). Sections « Contrat » et « Cycle de vie et timeout »
-acceptées ; la section « Idempotence » est complétée au fil de J4.
+Acceptée (J4) : contrat, cycle de vie et timeout, idempotence. La
+déduplication côté objet (section « Idempotence », point 2) est implémentée
+dans le simulateur (`backend/scripts/simulate-devices.ts`), et tout
+firmware réel devra la reproduire.
 
 ## Contexte
 
@@ -218,12 +220,97 @@ gagne »). L'état final changerait après coup, et le mobile aurait déjà
 annoncé un échec. On préfère un état stable, accompagné de l'information
 tardive explicite.
 
-### ACK sur une commande déjà conclue
+## Décision — Idempotence
 
-Un ACK reçu pour une commande déjà `ACKNOWLEDGED` ou `FAILED` n'a **aucun
-effet**. Le premier ACK fait foi. L'événement est journalisé avec
-`reason: duplicate_ack`. Le détail de l'idempotence est traité dans la
-section suivante.
+Une opération est **idempotente** si l'exécuter deux fois a le même effet
+que l'exécuter une fois. Dans un système distribué, les doublons sont la
+norme et non l'exception : MQTT QoS 1 garantit « au moins une fois », un
+réseau mobile perd des réponses, et un client réessaie. Un doublon peut
+naître à trois endroits, et chacun a sa parade :
+
+```
+ Téléphone ──(1)──► Backend ──── commande ──(2)──► Objet
+                    Backend ◄─── ACK ───────(3)─── Objet
+```
+
+### 0. Filet de dernier recours : des commandes en état cible
+
+Toute commande fixe un **état cible absolu** (`set_ventilation { on: true }`,
+`set_target_temperature { value: 21 }`), jamais une variation
+(`toggle_ventilation`, `+1 °C`). Exécutée deux fois, une commande absolue
+laisse le même état. Une variation, elle, s'annulerait (toggle) ou se
+cumulerait (+2 °C) **silencieusement**. Cette règle est imposée par la
+liste blanche (`commandCatalog.ts`) : ajouter une commande relative
+demanderait de revenir sur cet ADR.
+
+### 1. Demande rejouée par le client : `Idempotency-Key`
+
+Cas : double appui, ou requête arrivée au backend mais réponse perdue
+(tunnel, 4G), après quoi le client réessaie.
+
+- `POST /devices/:id/commands` exige un en-tête `Idempotency-Key`. Le
+  client génère un UUID **par intention de l'utilisateur** (un appui) et le
+  **réutilise à l'identique** pour chaque nouvel essai de cette même
+  intention.
+- La clé est enregistrée avec la commande, avec une contrainte unique
+  `(requestedBy, idempotencyKey)` (une clé est propre à chaque
+  utilisateur).
+
+| Situation | Réponse |
+|---|---|
+| Clé jamais vue | commande créée et publiée, **`202 Accepted`** |
+| Même clé, même demande (device, type, params) | **aucune** création ni publication. La commande existante est renvoyée dans son **état courant** : **`200`** + en-tête `Idempotent-Replayed: true`, log `reason: duplicate_request` |
+| Même clé, demande différente | **`409 Conflict`** (erreur du client) |
+| Pas de clé | **`400`** (`idempotency_key_required`) |
+| Deux requêtes identiques **simultanées** | la contrainte unique en base n'en laisse passer qu'une. L'autre récupère la commande créée (`createIfAbsent`) |
+
+La clé est **obligatoire**. Facultative, elle laisserait passer exactement
+le doublon qu'elle doit empêcher. On enregistre aussi `requestedBy`
+(l'utilisateur), pour la traçabilité.
+
+### 2. Commande reçue deux fois par l'objet : dédup par `command_id`
+
+Cas : le broker redélivre la commande (QoS 1, accusé de l'objet perdu,
+session persistante), avec le **même** `command_id`.
+
+- L'objet garde en mémoire les `command_id` déjà traités **et l'ACK
+  qu'il a renvoyé**.
+- Sur une commande déjà vue, il **ne l'exécute pas à nouveau** mais
+  **renvoie le même ACK**. Il n'ignore pas le doublon : la redélivrance
+  vient souvent de ce que quelque chose s'est perdu en route, et si
+  c'était l'ACK, le renvoyer est le seul moyen pour le backend d'apprendre
+  que c'est fait. Si le backend l'avait déjà reçu, le point 3 rend ce
+  second ACK sans effet.
+- La mémoire est bornée **naturellement par `expires_at`** : passé cette
+  date, l'objet répondrait `expired` de toute façon, donc il peut oublier
+  la commande.
+
+### 3. ACK reçu deux fois par le backend : le premier fait foi
+
+Un ACK pour une commande déjà `ACKNOWLEDGED` ou `FAILED` n'a **aucun
+effet** (transition conditionnelle refusée). L'événement est journalisé
+avec `reason: duplicate_ack`. Sur une commande en `TIMEOUT`, seul le
+premier ACK tardif est conservé (voir plus haut).
+
+### Nouvel essai après un échec ou un timeout
+
+Un nouvel appui de l'utilisateur après `FAILED`/`TIMEOUT` est une
+**nouvelle intention** : nouvelle clé, nouvelle commande, nouveau
+`command_id`, nouvelle échéance. On ne « relance » **jamais** une commande
+existante en réutilisant son identifiant. Sinon, une commande périmée
+pourrait être exécutée en retard, ou un ACK de l'ancienne tentative être
+attribué à la nouvelle.
+
+### Alternatives écartées
+
+- **Dédup côté backend par contenu** (« même device + même type + mêmes
+  params dans les N dernières secondes ») : elle confond un vrai doublon
+  avec deux intentions identiques mais légitimes (allumer, éteindre,
+  rallumer), et le choix de N est arbitraire. La clé du client désigne,
+  elle, sans ambiguïté *la même intention*.
+- **Ignorer silencieusement une commande déjà vue côté objet** : si l'ACK
+  initial a été perdu, la commande finirait en `TIMEOUT` alors qu'elle a
+  été exécutée.
 
 ## Limites connues
 
@@ -242,6 +329,9 @@ section suivante.
 - Migration `20261009100000_command_lifecycle` : `ACKED` → `ACKNOWLEDGED`,
   ajout de `TIMEOUT`, `timedOutAt`, `lateAckStatus`/`lateAckAt`, index
   `(status, expiresAt)` pour le balayage.
+- Migration `20261009110000_command_idempotency` : `requestedBy`,
+  `idempotencyKey`, contrainte unique `(requestedBy, idempotencyKey)`
+  (nullables pour les commandes antérieures : NULL n'entre pas en conflit).
 - `CommandService` reçoit un `Logger` : chaque transition est journalisée
   (`eventType: command_lifecycle`, `commandId`, `status`, `reason`) par le
   domaine, à la source qui la décide.

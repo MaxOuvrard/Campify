@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { DeviceRepository, NewDevice } from '../../src/domain/ports/DeviceRepository'
 import { MeasurementRepository } from '../../src/domain/ports/MeasurementRepository'
-import { CommandRepository, CommandTransition } from '../../src/domain/ports/CommandRepository'
+import { CommandRepository, CommandTransition, CreateCommandResult } from '../../src/domain/ports/CommandRepository'
 import { RoomRepository } from '../../src/domain/ports/RoomRepository'
 import { UserRepository } from '../../src/domain/ports/UserRepository'
 import { Device } from '../../src/domain/entities/Device'
@@ -102,7 +102,11 @@ export class InMemoryMeasurementRepository implements MeasurementRepository {
 export class InMemoryCommandRepository implements CommandRepository {
   private readonly commands = new Map<string, Command>()
 
-  async create(input: NewCommand): Promise<Command> {
+  async createIfAbsent(input: NewCommand): Promise<CreateCommandResult> {
+    const existing = [...this.commands.values()].find(
+      (c) => c.requestedBy === input.requestedBy && c.idempotencyKey === input.idempotencyKey
+    )
+    if (existing) return { command: { ...existing }, created: false }
     const command: Command = {
       id: randomUUID(),
       deviceId: input.deviceId,
@@ -116,10 +120,12 @@ export class InMemoryCommandRepository implements CommandRepository {
       failureReason: null,
       reportedState: null,
       timedOutAt: null,
-      lateAck: null
+      lateAck: null,
+      requestedBy: input.requestedBy,
+      idempotencyKey: input.idempotencyKey
     }
     this.commands.set(command.id, command)
-    return { ...command }
+    return { command: { ...command }, created: true }
   }
 
   async findById(id: string): Promise<Command | null> {

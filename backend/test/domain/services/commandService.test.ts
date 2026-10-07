@@ -1,8 +1,9 @@
 import { test } from 'node:test'
 import * as assert from 'node:assert'
+import { randomUUID } from 'node:crypto'
 import { CommandService } from '../../../src/domain/services/CommandService'
 import { CommandAck } from '../../../src/domain/entities/Command'
-import { ForbiddenError, NotFoundError, ValidationError } from '../../../src/shared/errors'
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../../src/shared/errors'
 import { InMemoryDeviceRepository, InMemoryCommandRepository } from '../../fakes/inMemoryRepositories'
 import { FixedClock, FakeLogger, FakeMqttPublisher } from '../../fakes/testDoubles'
 
@@ -26,7 +27,7 @@ function ack(commandId: string, deviceId: string, overrides: Partial<CommandAck>
 test('dispatch publishes the command via the MqttPublisher port and marks it as SENT', async () => {
   const { device, commands, publisher, service } = await setup()
 
-  const command = await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true } })
+  const command = (await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true }, requestedBy: 'user-1', idempotencyKey: randomUUID() })).command
 
   assert.equal(command.status, 'SENT')
   assert.equal(publisher.published.length, 1)
@@ -39,7 +40,7 @@ test('dispatch publishes the command via the MqttPublisher port and marks it as 
 test('dispatch sets expiresAt to now + ack timeout and sends it to the device', async () => {
   const { device, publisher, service } = await setup(10_000)
 
-  const command = await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: false } })
+  const command = (await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: false }, requestedBy: 'user-1', idempotencyKey: randomUUID() })).command
 
   assert.deepStrictEqual(command.expiresAt, new Date('2024-01-01T00:00:10Z'))
   assert.deepStrictEqual(publisher.published[0].expiresAt, new Date('2024-01-01T00:00:10Z'))
@@ -49,7 +50,7 @@ test('dispatch marks the command FAILED (broker_unavailable) when nothing could 
   const { device, publisher, logger, service } = await setup()
   publisher.nextOutcome = 'not_sent'
 
-  const command = await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true } })
+  const command = (await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true }, requestedBy: 'user-1', idempotencyKey: randomUUID() })).command
 
   assert.equal(command.status, 'FAILED')
   assert.equal(command.failureReason, 'broker_unavailable')
@@ -60,7 +61,7 @@ test('dispatch leaves the command PENDING when the publication is unconfirmed (i
   const { device, publisher, logger, service } = await setup()
   publisher.nextOutcome = 'unconfirmed'
 
-  const command = await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true } })
+  const command = (await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true }, requestedBy: 'user-1', idempotencyKey: randomUUID() })).command
 
   assert.equal(command.status, 'PENDING')
   assert.ok(logger.entries.some((e) => e.meta?.commandId === command.id && e.meta?.reason === 'publish_unconfirmed'))
@@ -69,7 +70,7 @@ test('dispatch leaves the command PENDING when the publication is unconfirmed (i
 test('an ACK may still conclude a PENDING command whose publication was unconfirmed', async () => {
   const { device, publisher, service, commands } = await setup()
   publisher.nextOutcome = 'unconfirmed'
-  const command = await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true } })
+  const command = (await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true }, requestedBy: 'user-1', idempotencyKey: randomUUID() })).command
 
   assert.equal(await service.acknowledge(ack(command.id, device.id)), 'acknowledged')
   assert.equal((await commands.findById(command.id))?.status, 'ACKNOWLEDGED')
@@ -81,7 +82,7 @@ test('dispatch never moves an already acknowledged command back to SENT (ACK fas
     await service.acknowledge(ack(message.commandId, device.id))
   }
 
-  const command = await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true } })
+  const command = (await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true }, requestedBy: 'user-1', idempotencyKey: randomUUID() })).command
 
   assert.equal(command.status, 'ACKNOWLEDGED')
 })
@@ -89,21 +90,21 @@ test('dispatch never moves an already acknowledged command back to SENT (ACK fas
 test('dispatch throws NotFoundError when the device does not exist', async () => {
   const { service } = await setup()
 
-  await assert.rejects(() => service.dispatch({ deviceId: 'missing-device', type: 'set_ventilation', params: { on: true } }), NotFoundError)
+  await assert.rejects(() => service.dispatch({ deviceId: 'missing-device', type: 'set_ventilation', params: { on: true }, requestedBy: 'user-1', idempotencyKey: randomUUID() }), NotFoundError)
 })
 
 test('dispatch rejects an unsupported command type before persisting or publishing anything', async () => {
   const { device, publisher, service } = await setup()
 
-  await assert.rejects(() => service.dispatch({ deviceId: device.id, type: 'reboot', params: {} }), ValidationError)
+  await assert.rejects(() => service.dispatch({ deviceId: device.id, type: 'reboot', params: {}, requestedBy: 'user-1', idempotencyKey: randomUUID() }), ValidationError)
   assert.equal(publisher.published.length, 0)
 })
 
 test('dispatch rejects invalid params for a supported command type', async () => {
   const { device, publisher, service } = await setup()
 
-  await assert.rejects(() => service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: 'yes' } }), ValidationError)
-  await assert.rejects(() => service.dispatch({ deviceId: device.id, type: 'set_target_temperature', params: { value: 99 } }), ValidationError)
+  await assert.rejects(() => service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: 'yes' }, requestedBy: 'user-1', idempotencyKey: randomUUID() }), ValidationError)
+  await assert.rejects(() => service.dispatch({ deviceId: device.id, type: 'set_target_temperature', params: { value: 99 }, requestedBy: 'user-1', idempotencyKey: randomUUID() }), ValidationError)
   assert.equal(publisher.published.length, 0)
 })
 
@@ -111,7 +112,7 @@ test('dispatch rejects invalid params for a supported command type', async () =>
 
 test('acknowledge with status executed marks the command as ACKNOWLEDGED and keeps the reported state', async () => {
   const { device, commands, service } = await setup()
-  const command = await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true } })
+  const command = (await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true }, requestedBy: 'user-1', idempotencyKey: randomUUID() })).command
 
   const outcome = await service.acknowledge(ack(command.id, device.id))
 
@@ -124,7 +125,7 @@ test('acknowledge with status executed marks the command as ACKNOWLEDGED and kee
 
 test('acknowledge with status rejected marks the command as FAILED with the device reason', async () => {
   const { device, commands, service } = await setup()
-  const command = await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true } })
+  const command = (await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true }, requestedBy: 'user-1', idempotencyKey: randomUUID() })).command
 
   const outcome = await service.acknowledge(ack(command.id, device.id, { status: 'rejected', reason: 'fan_jammed', state: null }))
 
@@ -136,7 +137,7 @@ test('acknowledge with status rejected marks the command as FAILED with the devi
 
 test('acknowledge with status expired marks the command as FAILED (not executed by the device)', async () => {
   const { device, commands, service } = await setup()
-  const command = await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true } })
+  const command = (await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true }, requestedBy: 'user-1', idempotencyKey: randomUUID() })).command
 
   await service.acknowledge(ack(command.id, device.id, { status: 'expired', state: null }))
 
@@ -147,7 +148,7 @@ test('acknowledge with status expired marks the command as FAILED (not executed 
 
 test('a late ACK after TIMEOUT keeps the TIMEOUT status but records what the device finally answered', async () => {
   const { device, commands, logger, service } = await setup()
-  const command = await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true } })
+  const command = (await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true }, requestedBy: 'user-1', idempotencyKey: randomUUID() })).command
   await commands.transition(command.id, ['SENT'], { status: 'TIMEOUT', timedOutAt: new Date('2024-01-01T00:00:20Z') })
 
   const lateAt = new Date('2024-01-01T00:00:22Z')
@@ -163,7 +164,7 @@ test('a late ACK after TIMEOUT keeps the TIMEOUT status but records what the dev
 
 test('a second ACK on an already acknowledged command has no effect (duplicate_ack)', async () => {
   const { device, commands, logger, service } = await setup()
-  const command = await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true } })
+  const command = (await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true }, requestedBy: 'user-1', idempotencyKey: randomUUID() })).command
   await service.acknowledge(ack(command.id, device.id))
 
   const outcome = await service.acknowledge(ack(command.id, device.id, { status: 'rejected', reason: 'whatever', ackedAt: new Date('2024-01-01T00:00:05Z') }))
@@ -177,7 +178,7 @@ test('a second ACK on an already acknowledged command has no effect (duplicate_a
 
 test('acknowledge refuses an ack coming from another device than the command target', async () => {
   const { device, commands, service } = await setup()
-  const command = await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true } })
+  const command = (await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true }, requestedBy: 'user-1', idempotencyKey: randomUUID() })).command
 
   await assert.rejects(() => service.acknowledge(ack(command.id, 'other-device')), ForbiddenError)
   assert.equal((await commands.findById(command.id))?.status, 'SENT')
@@ -187,4 +188,65 @@ test('acknowledge throws NotFoundError for an unknown command id', async () => {
   const { device, service } = await setup()
 
   await assert.rejects(() => service.acknowledge(ack('missing', device.id)), NotFoundError)
+})
+
+// --- Idempotence des demandes (ADR 0014) ---------------------------------
+
+test('replaying the same request (same idempotency key) returns the same command and publishes only once', async () => {
+  const { device, publisher, logger, service } = await setup()
+  const request = { deviceId: device.id, type: 'set_ventilation', params: { on: true }, requestedBy: 'user-1', idempotencyKey: 'tap-1' }
+
+  const first = await service.dispatch(request)
+  const second = await service.dispatch(request)
+
+  assert.equal(first.replayed, false)
+  assert.equal(second.replayed, true)
+  assert.equal(second.command.id, first.command.id)
+  assert.equal(second.command.status, 'SENT')
+  assert.equal(publisher.published.length, 1)
+  assert.ok(logger.entries.some((e) => e.meta?.commandId === first.command.id && e.meta?.reason === 'duplicate_request'))
+})
+
+test('a replay returns the CURRENT state of the command (e.g. already acknowledged)', async () => {
+  const { device, service } = await setup()
+  const request = { deviceId: device.id, type: 'set_ventilation', params: { on: true }, requestedBy: 'user-1', idempotencyKey: 'tap-1' }
+  const { command } = await service.dispatch(request)
+  await service.acknowledge(ack(command.id, device.id))
+
+  const replay = await service.dispatch(request)
+
+  assert.equal(replay.command.status, 'ACKNOWLEDGED')
+})
+
+test('reusing an idempotency key for a different command is a ConflictError, nothing is published', async () => {
+  const { device, publisher, service } = await setup()
+  await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true }, requestedBy: 'user-1', idempotencyKey: 'tap-1' })
+
+  await assert.rejects(
+    () => service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: false }, requestedBy: 'user-1', idempotencyKey: 'tap-1' }),
+    ConflictError
+  )
+  assert.equal(publisher.published.length, 1)
+})
+
+test('the same key from two different users creates two distinct commands', async () => {
+  const { device, publisher, service } = await setup()
+
+  const a = await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true }, requestedBy: 'user-1', idempotencyKey: 'tap-1' })
+  const b = await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true }, requestedBy: 'user-2', idempotencyKey: 'tap-1' })
+
+  assert.notEqual(a.command.id, b.command.id)
+  assert.equal(publisher.published.length, 2)
+})
+
+test('a new tap after a TIMEOUT (new key) is a new command with a new command id', async () => {
+  const { device, commands, publisher, service } = await setup()
+  const first = await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true }, requestedBy: 'user-1', idempotencyKey: 'tap-1' })
+  await commands.transition(first.command.id, ['SENT'], { status: 'TIMEOUT', timedOutAt: new Date() })
+
+  const retry = await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true }, requestedBy: 'user-1', idempotencyKey: 'tap-2' })
+
+  assert.equal(retry.replayed, false)
+  assert.notEqual(retry.command.id, first.command.id)
+  assert.equal(publisher.published.length, 2)
 })

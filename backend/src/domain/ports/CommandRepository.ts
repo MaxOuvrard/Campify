@@ -9,8 +9,19 @@ export interface CommandTransition {
   reportedState?: Record<string, unknown> | null
 }
 
+export interface CreateCommandResult {
+  command: Command
+  /** `false` : une commande existait déjà pour (requestedBy, idempotencyKey) — c'est elle qui est renvoyée, rien n'a été créé. */
+  created: boolean
+}
+
 export interface CommandRepository {
-  create(input: NewCommand): Promise<Command>
+  /**
+   * Crée la commande, sauf si (requestedBy, idempotencyKey) existe déjà :
+   * renvoie alors l'existante. Garanti par une contrainte d'unicité en base,
+   * donc correct même pour deux requêtes identiques simultanées.
+   */
+  createIfAbsent(input: NewCommand): Promise<CreateCommandResult>
   findById(id: string): Promise<Command | null>
   /**
    * Changement d'état ATOMIQUE et conditionnel : n'est appliqué que si le

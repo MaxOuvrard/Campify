@@ -1,5 +1,5 @@
 import { PrismaClient, Prisma } from '@prisma/client'
-import { CommandRepository, CommandTransition } from '../../domain/ports/CommandRepository'
+import { CommandRepository, CommandTransition, CreateCommandResult } from '../../domain/ports/CommandRepository'
 import { Command, CommandAckStatus, CommandStatus, LateAck, NewCommand, OPEN_COMMAND_STATUSES } from '../../domain/entities/Command'
 
 interface CommandRow {
@@ -17,6 +17,8 @@ interface CommandRow {
   timedOutAt: Date | null
   lateAckStatus: string | null
   lateAckAt: Date | null
+  requestedBy: string | null
+  idempotencyKey: string | null
 }
 
 function toDomain(row: CommandRow): Command {
@@ -33,7 +35,9 @@ function toDomain(row: CommandRow): Command {
     failureReason: row.failureReason,
     reportedState: (row.reportedState as Record<string, unknown> | null) ?? null,
     timedOutAt: row.timedOutAt,
-    lateAck: row.lateAckStatus && row.lateAckAt ? { status: row.lateAckStatus as CommandAckStatus, at: row.lateAckAt } : null
+    lateAck: row.lateAckStatus && row.lateAckAt ? { status: row.lateAckStatus as CommandAckStatus, at: row.lateAckAt } : null,
+    requestedBy: row.requestedBy,
+    idempotencyKey: row.idempotencyKey
   }
 }
 
@@ -46,16 +50,29 @@ function toJson(value: Record<string, unknown> | null | undefined): Prisma.Input
 export class PrismaCommandRepository implements CommandRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
-  async create(input: NewCommand): Promise<Command> {
-    const row = await this.prisma.command.create({
-      data: {
-        deviceId: input.deviceId,
-        type: input.type,
-        params: input.params as Prisma.InputJsonValue,
-        expiresAt: input.expiresAt
-      }
-    })
-    return toDomain(row)
+  async createIfAbsent(input: NewCommand): Promise<CreateCommandResult> {
+    try {
+      const row = await this.prisma.command.create({
+        data: {
+          deviceId: input.deviceId,
+          type: input.type,
+          params: input.params as Prisma.InputJsonValue,
+          expiresAt: input.expiresAt,
+          requestedBy: input.requestedBy,
+          idempotencyKey: input.idempotencyKey
+        }
+      })
+      return { command: toDomain(row), created: true }
+    } catch (err) {
+      // P2002 = violation de la contrainte unique (requestedBy, idempotencyKey) :
+      // une requête identique (éventuellement simultanée) a déjà créé la commande.
+      if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== 'P2002') throw err
+      const existing = await this.prisma.command.findUnique({
+        where: { requestedBy_idempotencyKey: { requestedBy: input.requestedBy, idempotencyKey: input.idempotencyKey } }
+      })
+      if (existing === null) throw err
+      return { command: toDomain(existing), created: false }
+    }
   }
 
   async findById(id: string): Promise<Command | null> {

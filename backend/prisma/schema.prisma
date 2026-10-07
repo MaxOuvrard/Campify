@@ -90,10 +90,17 @@ model Command {
   // ACK reçu après le TIMEOUT : conservé, sans changer le statut.
   lateAckStatus String?
   lateAckAt     DateTime?
+  // Qui a demandé la commande, et la clé d'idempotence fournie par le client
+  // (une par intention) : un rejeu renvoie la même commande — ADR 0014.
+  // Nullables pour les commandes antérieures à J4 (NULL n'entre pas en
+  // conflit avec la contrainte unique sous PostgreSQL).
+  requestedBy    String?
+  idempotencyKey String?
 
   @@index([deviceId])
   // Balayage des timeouts (worker) : commandes ouvertes par date d'expiration.
   @@index([status, expiresAt])
+  @@unique([requestedBy, idempotencyKey])
 }
 
 model User {

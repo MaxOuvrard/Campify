@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import * as assert from 'node:assert'
+import { randomUUID } from 'node:crypto'
 import { createMeasurementHandler, createCommandAckHandler } from '../../../src/driving/mqtt/handlers'
 import { createMqttTopics } from '../../../src/shared/mqttTopics'
 import { CommandService } from '../../../src/domain/services/CommandService'
@@ -71,7 +72,7 @@ async function setupAck() {
   const publisher = new FakeMqttPublisher()
   const clock = new FixedClock(new Date('2024-01-01T00:00:00Z'))
   const commandService = new CommandService(commands, devices, publisher, clock, new FakeLogger())
-  const command = await commandService.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true } })
+  const command = (await commandService.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true }, requestedBy: 'user-1', idempotencyKey: randomUUID() })).command
   const logger = new FakeLogger()
   const handler = createCommandAckHandler({ topics, commandService, logger })
   return { device, commands, command, logger, handler }

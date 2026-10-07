@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import * as assert from 'node:assert'
+import { randomUUID } from 'node:crypto'
 import { CommandService } from '../../../src/domain/services/CommandService'
 import { CommandTimeoutService } from '../../../src/domain/services/CommandTimeoutService'
 import { InMemoryDeviceRepository, InMemoryCommandRepository } from '../../fakes/inMemoryRepositories'
@@ -20,7 +21,7 @@ async function setup() {
 
 test('a SENT command without ACK is not timed out before expiresAt + grace', async () => {
   const { device, commands, clock, service, timeouts } = await setup()
-  const command = await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true } })
+  const command = (await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true }, requestedBy: 'user-1', idempotencyKey: randomUUID() })).command
 
   clock.advance(14_000)
   assert.equal(await timeouts.expireOverdue(), 0)
@@ -29,7 +30,7 @@ test('a SENT command without ACK is not timed out before expiresAt + grace', asy
 
 test('a SENT command without ACK goes to TIMEOUT once expiresAt + grace is passed, and it is logged', async () => {
   const { device, commands, clock, logger, service, timeouts } = await setup()
-  const command = await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true } })
+  const command = (await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true }, requestedBy: 'user-1', idempotencyKey: randomUUID() })).command
 
   clock.advance(15_001)
   assert.equal(await timeouts.expireOverdue(), 1)
@@ -45,7 +46,7 @@ test('a SENT command without ACK goes to TIMEOUT once expiresAt + grace is passe
 test('a PENDING command (publication unconfirmed) also times out, with a distinct reason', async () => {
   const { device, publisher, clock, logger, service, timeouts } = await setup()
   publisher.nextOutcome = 'unconfirmed'
-  const command = await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true } })
+  const command = (await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true }, requestedBy: 'user-1', idempotencyKey: randomUUID() })).command
 
   clock.advance(16_000)
   await timeouts.expireOverdue()
@@ -56,7 +57,7 @@ test('a PENDING command (publication unconfirmed) also times out, with a distinc
 
 test('already acknowledged or failed commands are never timed out', async () => {
   const { device, commands, clock, service, timeouts } = await setup()
-  const acked = await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true } })
+  const acked = (await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true }, requestedBy: 'user-1', idempotencyKey: randomUUID() })).command
   await service.acknowledge({ commandId: acked.id, deviceId: device.id, status: 'executed', reason: null, state: null, ackedAt: new Date() })
 
   clock.advance(60_000)
@@ -66,7 +67,7 @@ test('already acknowledged or failed commands are never timed out', async () => 
 
 test('when the ACK wins the race between the read and the transition, the timeout gives up', async () => {
   const { device, commands, clock, service, timeouts } = await setup()
-  const command = await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true } })
+  const command = (await service.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true }, requestedBy: 'user-1', idempotencyKey: randomUUID() })).command
   clock.advance(16_000)
 
   // Simule l'ingester qui traite l'ACK juste après la lecture des commandes échues par le worker.

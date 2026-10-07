@@ -42,6 +42,14 @@ export interface Command {
    * est conservé et exposé, pas caché. Voir ADR 0014.
    */
   lateAck: LateAck | null
+  /** Utilisateur ayant demandé la commande (null pour les commandes antérieures à J4). */
+  requestedBy: string | null
+  /**
+   * Clé d'idempotence fournie par le client (une par intention de
+   * l'utilisateur), unique par `requestedBy` : un rejeu de la même demande
+   * renvoie la même commande au lieu d'en créer une seconde. Voir ADR 0014.
+   */
+  idempotencyKey: string | null
 }
 
 export interface LateAck {
@@ -54,6 +62,8 @@ export interface NewCommand {
   type: string
   params: CommandParams
   expiresAt: Date
+  requestedBy: string
+  idempotencyKey: string
 }
 
 /** Demande de commande telle qu'elle arrive d'une entrée (API), avant validation. */
@@ -61,6 +71,8 @@ export interface CommandRequest {
   deviceId: string
   type: string
   params?: unknown
+  requestedBy: string
+  idempotencyKey: string
 }
 
 /**

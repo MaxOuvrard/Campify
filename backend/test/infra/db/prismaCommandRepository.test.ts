@@ -22,7 +22,17 @@ test('PrismaCommandRepository respects the CommandRepository contract', { skip: 
     const device = await devices.create({ name: 'test-device', type: 'temperature', roomId: room.id })
 
     const expiresAt = new Date('2024-01-01T00:00:15Z')
-    const created = await commands.create({ deviceId: device.id, type: 'set_ventilation', params: { on: true }, expiresAt })
+    const newCommand = { deviceId: device.id, type: 'set_ventilation', params: { on: true }, expiresAt, requestedBy: 'user-1', idempotencyKey: randomUUID() }
+    const first = await commands.createIfAbsent(newCommand)
+    assert.equal(first.created, true)
+    const created = first.command
+    assert.equal(created.idempotencyKey, newCommand.idempotencyKey)
+
+    // Même (requestedBy, idempotencyKey) : la contrainte unique renvoie l'existante, rien n'est créé.
+    const replay = await commands.createIfAbsent(newCommand)
+    assert.equal(replay.created, false)
+    assert.equal(replay.command.id, created.id)
+
     assert.equal(created.status, 'PENDING')
     assert.deepEqual(created.params, { on: true })
     assert.deepStrictEqual(created.expiresAt, expiresAt)
@@ -55,7 +65,14 @@ test('PrismaCommandRepository respects the CommandRepository contract', { skip: 
     assert.deepStrictEqual(timedOut?.lateAck, { status: 'executed', at: lateAt })
     assert.deepEqual(timedOut?.reportedState, { ventilation: 'on' })
 
-    const other = await commands.create({ deviceId: device.id, type: 'set_ventilation', params: { on: false }, expiresAt })
+    const { command: other } = await commands.createIfAbsent({
+      deviceId: device.id,
+      type: 'set_ventilation',
+      params: { on: false },
+      expiresAt,
+      requestedBy: 'user-1',
+      idempotencyKey: randomUUID()
+    })
     await commands.transition(other.id, ['PENDING'], { status: 'FAILED', failureReason: 'rejected_by_device: fan_jammed' })
     assert.equal((await commands.findById(other.id))?.failureReason, 'rejected_by_device: fan_jammed')
 

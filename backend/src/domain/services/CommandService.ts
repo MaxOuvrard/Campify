@@ -4,7 +4,7 @@ import { MqttPublisher } from '../ports/MqttPublisher'
 import { Clock } from '../ports/Clock'
 import { Logger } from '../ports/Logger'
 import { Command, CommandAck, CommandRequest, OPEN_COMMAND_STATUSES } from '../entities/Command'
-import { ForbiddenError, NotFoundError } from '../../shared/errors'
+import { ConflictError, ForbiddenError, NotFoundError } from '../../shared/errors'
 import { validateCommand } from './commandCatalog'
 
 export const DEFAULT_COMMAND_ACK_TIMEOUT_MS = 15_000
@@ -18,6 +18,12 @@ export const COMMAND_EVENT_TYPE = 'command_lifecycle'
  * - `duplicate_ack` : la commande avait déjà reçu sa réponse, l'ACK n'a aucun effet.
  */
 export type AckOutcome = 'acknowledged' | 'failed' | 'late_ack' | 'duplicate_ack'
+
+export interface DispatchResult {
+  command: Command
+  /** `true` : rejeu d'une demande déjà reçue (même clé d'idempotence) — rien n'a été recréé ni republié. */
+  replayed: boolean
+}
 
 /**
  * Point d'entrée unique du domaine pour émettre et acquitter des commandes,
@@ -39,7 +45,14 @@ export class CommandService {
     private readonly ackTimeoutMs: number = DEFAULT_COMMAND_ACK_TIMEOUT_MS
   ) {}
 
-  async dispatch(request: CommandRequest): Promise<Command> {
+  /**
+   * Idempotent par (requestedBy, idempotencyKey) : un rejeu de la même
+   * demande (double appui, retry réseau après réponse perdue) renvoie la
+   * commande existante dans son état courant, sans la republier — une
+   * seule exécution possible. Même clé pour une demande différente :
+   * ConflictError (erreur du client). Voir ADR 0014.
+   */
+  async dispatch(request: CommandRequest): Promise<DispatchResult> {
     const params = validateCommand(request.type, request.params)
 
     const device = await this.devices.findById(request.deviceId)
@@ -48,9 +61,39 @@ export class CommandService {
     }
 
     const expiresAt = new Date(this.clock.now().getTime() + this.ackTimeoutMs)
-    const command = await this.commands.create({ deviceId: device.id, type: request.type, params, expiresAt })
+    const { command, created } = await this.commands.createIfAbsent({
+      deviceId: device.id,
+      type: request.type,
+      params,
+      expiresAt,
+      requestedBy: request.requestedBy,
+      idempotencyKey: request.idempotencyKey
+    })
+
+    if (!created) {
+      if (command.deviceId !== device.id || command.type !== request.type || !sameParams(command.params, params)) {
+        throw new ConflictError(`Idempotency-Key ${request.idempotencyKey} was already used for a different command`)
+      }
+      this.logger.warn('duplicate command request, existing command returned', {
+        eventType: COMMAND_EVENT_TYPE,
+        commandId: command.id,
+        deviceId: command.deviceId,
+        commandType: command.type,
+        status: command.status,
+        reason: 'duplicate_request',
+        idempotencyKey: request.idempotencyKey
+      })
+      return { command, replayed: true }
+    }
+
     const logMeta = { eventType: COMMAND_EVENT_TYPE, commandId: command.id, deviceId: command.deviceId, commandType: command.type }
-    this.logger.info('command accepted', { ...logMeta, status: 'PENDING', expiresAt: expiresAt.toISOString() })
+    this.logger.info('command accepted', {
+      ...logMeta,
+      status: 'PENDING',
+      expiresAt: expiresAt.toISOString(),
+      requestedBy: request.requestedBy,
+      idempotencyKey: request.idempotencyKey
+    })
 
     const outcome = await this.publisher.publishCommand({
       commandId: command.id,
@@ -76,7 +119,7 @@ export class CommandService {
       this.logger.warn('command publish unconfirmed', { ...logMeta, status: 'PENDING', reason: 'publish_unconfirmed' })
     }
 
-    return (await this.commands.findById(command.id)) ?? command
+    return { command: (await this.commands.findById(command.id)) ?? command, replayed: false }
   }
 
   async acknowledge(ack: CommandAck): Promise<AckOutcome> {
@@ -122,4 +165,10 @@ export class CommandService {
     this.logger.warn('duplicate ack ignored', { ...logMeta, status: current.status, reason: 'duplicate_ack' })
     return 'duplicate_ack'
   }
+}
+
+/** Égalité structurelle indépendante de l'ordre des clés (jsonb ne le conserve pas). */
+function sameParams(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  const canonical = (o: Record<string, unknown>) => JSON.stringify(Object.keys(o).sort().map((k) => [k, o[k]]))
+  return canonical(a) === canonical(b)
 }
