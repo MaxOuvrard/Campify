@@ -64,21 +64,65 @@ test('measurement handler logs an error and does not throw when the raw store is
   assert.equal(entry?.meta?.topic, 'campus/v1/devices/sensor-001/telemetry')
 })
 
-test('command ack handler acknowledges the command via the domain service', async () => {
+async function setupAck() {
   const devices = new InMemoryDeviceRepository()
   const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
   const commands = new InMemoryCommandRepository()
   const publisher = new FakeMqttPublisher()
   const clock = new FixedClock(new Date('2024-01-01T00:00:00Z'))
-  const commandService = new CommandService(commands, devices, publisher, clock)
-  const command = await commandService.dispatch({ deviceId: device.id, type: 'reboot' })
-
+  const commandService = new CommandService(commands, devices, publisher, clock, new FakeLogger())
+  const command = await commandService.dispatch({ deviceId: device.id, type: 'set_ventilation', params: { on: true } })
   const logger = new FakeLogger()
-  const handler = createCommandAckHandler({ commandService, logger })
-  const topic = topics.commandTopic(device.id) + '/ack'
+  const handler = createCommandAckHandler({ topics, commandService, logger })
+  return { device, commands, command, logger, handler }
+}
 
-  await handler(topic, JSON.stringify({ commandId: command.id, acknowledgedAt: '2024-01-01T00:05:00.000Z' }))
+function ackPayload(commandId: string, overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    schema_version: 1,
+    command_id: commandId,
+    status: 'executed',
+    state: { ventilation: 'on' },
+    acked_at: '2024-01-01T00:00:01.000Z',
+    ...overrides
+  })
+}
+
+test('command ack handler acknowledges the command via the domain service', async () => {
+  const { device, commands, command, handler } = await setupAck()
+
+  await handler(`campus/v1/devices/${device.id}/commands/ack`, ackPayload(command.id))
 
   const stored = await commands.findById(command.id)
-  assert.equal(stored?.status, 'ACKED')
+  assert.equal(stored?.status, 'ACKNOWLEDGED')
+  assert.deepEqual(stored?.reportedState, { ventilation: 'on' })
+})
+
+test('command ack handler rejects an ack published on another device topic (device_mismatch)', async () => {
+  const { commands, command, logger, handler } = await setupAck()
+
+  await handler('campus/v1/devices/intruder-device/commands/ack', ackPayload(command.id))
+
+  const stored = await commands.findById(command.id)
+  assert.equal(stored?.status, 'SENT')
+  const entry = logger.entries.find((e) => e.meta?.reason === 'device_mismatch')
+  assert.equal(entry?.meta?.commandId, command.id)
+  assert.equal(entry?.meta?.deviceId, 'intruder-device')
+})
+
+test('command ack handler logs unknown_command for an ack with an unknown command id', async () => {
+  const { device, logger, handler } = await setupAck()
+
+  await handler(`campus/v1/devices/${device.id}/commands/ack`, ackPayload('missing-command'))
+
+  assert.ok(logger.entries.some((e) => e.meta?.reason === 'unknown_command' && e.meta?.commandId === 'missing-command'))
+})
+
+test('command ack handler rejects an ack that does not follow the contract (invalid_schema)', async () => {
+  const { device, command, commands, logger, handler } = await setupAck()
+
+  await handler(`campus/v1/devices/${device.id}/commands/ack`, JSON.stringify({ commandId: command.id }))
+
+  assert.equal((await commands.findById(command.id))?.status, 'SENT')
+  assert.ok(logger.entries.some((e) => e.meta?.reason === 'invalid_schema'))
 })

@@ -13,11 +13,13 @@ enum Role {
   VIEWER
 }
 
+// Cycle de vie d'une commande — voir ADR 0014.
 enum CommandStatus {
   PENDING
   SENT
-  ACKED
+  ACKNOWLEDGED
   FAILED
+  TIMEOUT
 }
 
 model Room {
@@ -73,13 +75,25 @@ model Command {
   device    Device        @relation(fields: [deviceId], references: [id])
   deviceId  String
   type      String
-  payload   Json?
+  params    Json
   status    CommandStatus @default(PENDING)
   createdAt DateTime      @default(now())
+  // Au-delà, l'objet ne doit plus exécuter la commande (ADR 0014).
+  expiresAt DateTime
   sentAt    DateTime?
   ackedAt   DateTime?
+  // Motif d'échec (refus de l'objet, expiration…) et état réel rapporté
+  // par l'objet dans son ACK.
+  failureReason String?
+  reportedState Json?
+  timedOutAt    DateTime?
+  // ACK reçu après le TIMEOUT : conservé, sans changer le statut.
+  lateAckStatus String?
+  lateAckAt     DateTime?
 
   @@index([deviceId])
+  // Balayage des timeouts (worker) : commandes ouvertes par date d'expiration.
+  @@index([status, expiresAt])
 }
 
 model User {

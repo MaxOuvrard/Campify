@@ -63,9 +63,19 @@ export function decodeTelemetry(payload: string): DecodedTelemetry {
   }
 }
 
+/**
+ * ACK d'une commande, publié par l'objet sur
+ * `{prefix}/v1/devices/{deviceId}/commands/ack` APRÈS exécution (ADR 0014).
+ * `command_id` recopie celui de la commande reçue (corrélation) ; le
+ * device est résolu depuis le topic, pas depuis le payload.
+ */
 export const incomingCommandAckSchema = z.object({
-  commandId: z.string().min(1),
-  acknowledgedAt: z.string().datetime().optional()
+  schema_version: z.number(),
+  command_id: z.string().min(1),
+  status: z.enum(['executed', 'rejected', 'expired']),
+  reason: z.string().nullable().optional(),
+  state: z.record(z.unknown()).nullable().optional(),
+  acked_at: z.string().datetime()
 })
 
 export type IncomingCommandAckPayload = z.infer<typeof incomingCommandAckSchema>

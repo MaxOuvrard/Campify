@@ -11,7 +11,7 @@ import {
   InMemoryCommandRepository,
   InMemoryUserRepository
 } from '../../fakes/inMemoryRepositories'
-import { FixedClock, FakeMqttPublisher } from '../../fakes/testDoubles'
+import { FixedClock, FakeLogger, FakeMqttPublisher } from '../../fakes/testDoubles'
 
 async function buildTestApp() {
   const rooms = new InMemoryRoomRepository()
@@ -21,7 +21,7 @@ async function buildTestApp() {
   const users = new InMemoryUserRepository()
   const publisher = new FakeMqttPublisher()
   const clock = new FixedClock(new Date('2024-01-01T00:00:00Z'))
-  const commandService = new CommandService(commands, devices, publisher, clock)
+  const commandService = new CommandService(commands, devices, publisher, clock, new FakeLogger())
   const deviceAssociationService = new DeviceAssociationService(devices, rooms)
 
   const room = await rooms.create('Salle Test')
@@ -400,7 +400,7 @@ test('POST /devices/:id/commands is forbidden for a VIEWER', async (t) => {
     method: 'POST',
     url: `/devices/${device.id}/commands`,
     headers: authHeader(token),
-    payload: { type: 'reboot' }
+    payload: { type: 'set_ventilation', params: { on: true } }
   })
 
   assert.equal(response.statusCode, 403)
@@ -415,14 +415,47 @@ test('POST /devices/:id/commands dispatches a command for an ADMIN and publishes
     method: 'POST',
     url: `/devices/${device.id}/commands`,
     headers: authHeader(token),
-    payload: { type: 'reboot' }
+    payload: { type: 'set_ventilation', params: { on: true } }
   })
 
-  assert.equal(response.statusCode, 201)
+  // 202 : acceptée, exécution pas encore confirmée par l'objet.
+  assert.equal(response.statusCode, 202)
   const created = response.json() as { id: string; status: string }
   assert.equal(created.status, 'SENT')
   assert.equal(publisher.published.length, 1)
   assert.equal(publisher.published[0].deviceId, device.id)
+})
+
+test('POST /devices/:id/commands returns 400 for an unsupported command type and publishes nothing', async (t) => {
+  const { app, device, publisher } = await buildTestApp()
+  t.after(() => app.close())
+  const token = await loginAs(app, 'admin@test.local', 'admin-pass')
+
+  const response = await app.inject({
+    method: 'POST',
+    url: `/devices/${device.id}/commands`,
+    headers: authHeader(token),
+    payload: { type: 'reboot' }
+  })
+
+  assert.equal(response.statusCode, 400)
+  assert.equal(publisher.published.length, 0)
+})
+
+test('POST /devices/:id/commands returns 400 for invalid params', async (t) => {
+  const { app, device, publisher } = await buildTestApp()
+  t.after(() => app.close())
+  const token = await loginAs(app, 'admin@test.local', 'admin-pass')
+
+  const response = await app.inject({
+    method: 'POST',
+    url: `/devices/${device.id}/commands`,
+    headers: authHeader(token),
+    payload: { type: 'set_target_temperature', params: { value: 99 } }
+  })
+
+  assert.equal(response.statusCode, 400)
+  assert.equal(publisher.published.length, 0)
 })
 
 test('POST /devices/:id/commands returns 404 for an unknown device', async (t) => {
@@ -434,7 +467,7 @@ test('POST /devices/:id/commands returns 404 for an unknown device', async (t) =
     method: 'POST',
     url: '/devices/missing-device/commands',
     headers: authHeader(token),
-    payload: { type: 'reboot' }
+    payload: { type: 'set_ventilation', params: { on: true } }
   })
 
   assert.equal(response.statusCode, 404)
@@ -458,7 +491,7 @@ test('GET /commands/:id returns the command once it has been dispatched', async 
     method: 'POST',
     url: `/devices/${device.id}/commands`,
     headers: authHeader(adminToken),
-    payload: { type: 'reboot' }
+    payload: { type: 'set_ventilation', params: { on: true } }
   })
   const commandId = (dispatch.json() as { id: string }).id
 

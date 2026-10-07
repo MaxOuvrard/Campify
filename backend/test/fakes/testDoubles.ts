@@ -1,6 +1,6 @@
 import { Clock } from '../../src/domain/ports/Clock'
 import { Logger } from '../../src/domain/ports/Logger'
-import { MqttPublisher, OutgoingCommandMessage } from '../../src/domain/ports/MqttPublisher'
+import { MqttPublisher, OutgoingCommandMessage, PublishOutcome } from '../../src/domain/ports/MqttPublisher'
 import { RawEventRepository } from '../../src/domain/ports/RawEventRepository'
 import { ConsolidationCheckpointRepository } from '../../src/domain/ports/ConsolidationCheckpointRepository'
 import { DeadLetterRepository } from '../../src/domain/ports/DeadLetterRepository'
@@ -42,9 +42,16 @@ export class FakeLogger implements Logger {
 
 export class FakeMqttPublisher implements MqttPublisher {
   readonly published: OutgoingCommandMessage[] = []
+  /** Issue renvoyée à la prochaine publication ; `not_sent` n'enregistre rien. */
+  nextOutcome: PublishOutcome = 'confirmed'
+  /** Appelé pendant la publication, avant qu'elle ne rende la main (ex. ACK ultra-rapide). */
+  onPublish?: (message: OutgoingCommandMessage) => Promise<void>
 
-  async publishCommand(message: OutgoingCommandMessage): Promise<void> {
-    this.published.push(message)
+  async publishCommand(message: OutgoingCommandMessage): Promise<PublishOutcome> {
+    const outcome = this.nextOutcome
+    if (outcome !== 'not_sent') this.published.push(message)
+    if (this.onPublish) await this.onPublish(message)
+    return outcome
   }
 }
 

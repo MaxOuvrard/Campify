@@ -57,16 +57,14 @@ actions d'écriture vers un système réel restent soumises à validation).
 
 ## Ce qui reste en placeholder
 
-- Commandes/acquittements dans `backend/src/shared/mqttTopics.ts` :
-  - Émission de commande (publish) : `{prefix}/devices/{deviceId}/commands`
-  - Acquittement de commande : `{prefix}/devices/{deviceId}/commands/ack`
-  - Payload d'acquittement, `backend/src/driving/mqtt/schemas.ts` :
-    ```json
-    { "commandId": "uuid", "acknowledgedAt": "2024-01-01T00:00:00.000Z" }
-    ```
-  Non vérifiés : publier une commande vers le kit modifierait un système
-  partagé, ce qui n'a pas été fait. À revoir dès qu'une commande réelle
-  (et son ack) auront pu être observés.
+- Commandes/acquittements : **définis par l'équipe en J4**, voir
+  [ADR 0014](0014-cycle-de-vie-des-commandes.md) (topics
+  `{prefix}/v1/devices/{deviceId}/commands` et `.../commands/ack`, payloads
+  `snake_case` avec `command_id`, `expires_at`, `status` d'exécution).
+  Toujours non vérifiés contre le kit réel : publier une commande vers le
+  kit modifierait un système partagé, ce qui n'a pas été fait. Un écart ne
+  toucherait que `shared/mqttTopics.ts`, `driving/mqtt/schemas.ts` et
+  `infra/mqtt/MqttCommandPublisher.ts`.
 - Les seuils d'alerte dans `backend/src/composition.ts`
   (`alertThresholds`, actuellement vide) — à définir maintenant que les
   types de métriques réels (`temperature`, `co2`) et leurs unités sont

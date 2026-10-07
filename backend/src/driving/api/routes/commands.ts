@@ -3,9 +3,11 @@ import { z } from 'zod'
 import { CommandService } from '../../../domain/services/CommandService'
 import { CommandRepository } from '../../../domain/ports/CommandRepository'
 
+// Forme seulement : le type et les paramètres autorisés sont une règle
+// métier, validée par le domaine (commandCatalog, ADR 0014).
 const createCommandSchema = z.object({
   type: z.string().min(1),
-  payload: z.record(z.unknown()).optional()
+  params: z.record(z.unknown()).default({})
 })
 
 export interface CommandRoutesDeps {
@@ -23,9 +25,11 @@ export default async function commandRoutes(fastify: FastifyInstance, deps: Comm
       const command = await deps.commandService.dispatch({
         deviceId: id,
         type: body.type,
-        payload: body.payload ?? null
+        params: body.params
       })
-      return reply.code(201).send(command)
+      // 202 Accepted, pas 201 : la demande est acceptée mais son exécution
+      // n'est PAS encore confirmée — suivre son état via GET /commands/:id.
+      return reply.code(202).send(command)
     }
   )
 

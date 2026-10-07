@@ -35,7 +35,9 @@ optionnels** — depuis les ADR 0011/0012, `npm run dev` (l'API) ne touche
 plus du tout à MQTT ni au journal brut. Sans l'ingester, aucune mesure
 n'est même reçue ; sans le worker, ce que l'ingester écrit dans MongoDB
 n'est jamais décodé/dédupliqué/consolidé en base vérifiée — dans les deux cas,
-l'API renverrait toujours une liste vide. Avec `docker compose up -d
+l'API renverrait toujours une liste vide. Côté commandes (ADR 0014),
+sans l'ingester aucun ACK n'est reçu, et sans le worker aucune commande
+sans réponse ne passe jamais en `TIMEOUT`. Avec `docker compose up -d
 --build` (plus bas), les services `ingester` et `worker` démarrent
 automatiquement avec le reste — pas d'action manuelle dans ce cas.
 
@@ -170,11 +172,12 @@ npm test
   réelle : il est automatiquement ignoré si `DATABASE_URL` n'est pas
   définie.
 
-## ⚠️ Contrat MQTT — commandes encore provisoires
+## Contrat MQTT
 
 Le contrat de **télémétrie** (topics + payloads, `src/shared/mqttTopics.ts`,
 `src/driving/mqtt/schemas.ts`) est confirmé : observé sur le broker de
-démonstration. Le contrat de **commandes/acquittements** reste un
-**placeholder** non vérifié (aucune commande n'a encore été publiée vers
-le kit). Voir [ADR 0004](../docs/decisions/0004-contrat-mqtt-placeholder.md)
-pour le détail de ce qui reste à ajuster.
+démonstration. Le contrat de **commandes/ACK** (`{prefix}/v1/devices/{id}/commands`
+et `.../commands/ack`, payloads en `snake_case` avec `command_id`) est défini
+par l'équipe en J4 — voir [ADR 0014](../docs/decisions/0014-cycle-de-vie-des-commandes.md).
+Il n'a pas été vérifié contre le kit réel (aucune commande publiée vers le
+broker partagé), voir [ADR 0004](../docs/decisions/0004-contrat-mqtt-placeholder.md).

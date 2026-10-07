@@ -10,8 +10,8 @@
 # télémétrie (ce n'est pas un device).
 user backend
 topic read campus/v1/devices/+/telemetry
-topic read campus/devices/+/commands/ack
-topic write campus/devices/+/commands
+topic read campus/v1/devices/+/commands/ack
+topic write campus/v1/devices/+/commands
 
 # Devices : chaque device s'authentifie avec un identifiant MQTT égal à son
 # deviceId (ex. utilisateur "sensor-001"). `%u` est remplacé par cet
@@ -19,5 +19,5 @@ topic write campus/devices/+/commands
 # ne lire/écrire que SES propres commandes/acquittements — jamais ceux
 # d'un autre device.
 pattern write campus/v1/devices/%u/telemetry
-pattern read campus/devices/%u/commands
-pattern write campus/devices/%u/commands/ack
+pattern read campus/v1/devices/%u/commands
+pattern write campus/v1/devices/%u/commands/ack
