@@ -90,6 +90,17 @@ export function createCommandAckHandler(deps: CommandAckHandlerDeps) {
       return
     }
 
+    // Réception brute de l'ACK, AVANT le domaine : distingue « l'ACK n'est
+    // jamais arrivé » de « l'ACK est arrivé mais a été rejeté » (ADR 0014).
+    deps.logger.info('command ack received', {
+      eventType: COMMAND_ACK_EVENT_TYPE,
+      topic,
+      deviceId,
+      commandId: result.data.command_id,
+      ackStatus: result.data.status,
+      status: 'ack_received'
+    })
+
     try {
       await deps.commandService.acknowledge({
         commandId: result.data.command_id,

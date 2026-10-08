@@ -1,12 +1,15 @@
 # Scrape les logs de TOUS les conteneurs du docker-compose via le socket
 # Docker (découverte automatique, pas de config par service à maintenir).
-# Seuls les logs du service "backend" sont au format JSON (voir
-# shared/logger.ts, LOG_FORMAT=json) ; le pipeline n'extrait des champs en
-# labels QUE pour ce service — les autres (postgres, mosquitto…) restent
-# du texte brut, cherchable mais pas structuré.
+# Les logs des services Campify — API (`backend`), `ingester`, `worker` et
+# `simulator` — sont au format JSON (shared/logger.ts, LOG_FORMAT=json ;
+# scripts/device/log.ts) ; le pipeline n'extrait des champs en labels QUE
+# pour eux — les autres (postgres, mosquitto…) restent du texte brut,
+# cherchable mais pas structuré. Correction J4 : seul `backend` était
+# analysé, alors que depuis les ADR 0011/0012 l'ingester (ACK) et le
+# worker (consolidation, timeouts) produisent l'essentiel des événements.
 #
 # Labels volontairement limités à `level`/`eventType`/`status` (faible
-# cardinalité, valeurs bornées) : `deviceId`/`eventId`/`reason`/`topic`
+# cardinalité, valeurs bornées) : `deviceId`/`eventId`/`commandId`/`reason`/`topic`
 # restent dans le corps du log, filtrables via `| json` dans les requêtes
 # LogQL, jamais promus en label — un label à cardinalité illimitée (un
 # eventId est quasi unique par message) ferait exploser l'index Loki.
@@ -33,7 +36,7 @@ scrape_configs:
         target_label: 'compose_service'
     pipeline_stages:
       - match:
-          selector: '{compose_service="backend"}'
+          selector: '{compose_service=~"backend|ingester|worker|simulator"}'
           stages:
             - json:
                 expressions:

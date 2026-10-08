@@ -21,7 +21,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "prisma:seed": "tsx prisma/seed.ts",
-    "simulate:devices": "tsx scripts/simulate-devices.ts"
+    "simulate:devices": "tsx scripts/simulate-devices.ts",
+    "trace:command": "tsx scripts/trace-command.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

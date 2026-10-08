@@ -81,6 +81,7 @@ export async function startApplication(): Promise<Application> {
     measurements,
     commandService,
     commands,
+    logger,
     deviceAssociationService,
     staleThresholdMs: config.DEVICE_STALE_THRESHOLD_MS
   })

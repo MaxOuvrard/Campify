@@ -20,11 +20,12 @@ const ROOMS = [
   { name: 'Salle 205', device: { id: 'sensor-003', name: 'Capteur sensor-003' } }
 ]
 
-const DEMO_USER = {
-  email: 'demo@campify.local',
-  password: 'campify-demo',
-  role: 'VIEWER' as const
-}
+// Deux comptes de démo : VIEWER (consultation seule) et OPERATOR (peut
+// envoyer des commandes aux objets, J4 — RBAC de POST /devices/:id/commands).
+const DEMO_USERS = [
+  { email: 'demo@campify.local', password: 'campify-demo', role: 'VIEWER' as const },
+  { email: 'operateur@campify.local', password: 'campify-operateur', role: 'OPERATOR' as const }
+]
 
 async function main(): Promise<void> {
   const prisma = new PrismaClient()
@@ -44,14 +45,17 @@ async function main(): Promise<void> {
       })
     }
 
-    const passwordHash = await bcrypt.hash(DEMO_USER.password, 10)
-    await prisma.user.upsert({
-      where: { email: DEMO_USER.email },
-      update: {},
-      create: { email: DEMO_USER.email, passwordHash, role: DEMO_USER.role }
-    })
+    for (const user of DEMO_USERS) {
+      const passwordHash = await bcrypt.hash(user.password, 10)
+      await prisma.user.upsert({
+        where: { email: user.email },
+        update: {},
+        create: { email: user.email, passwordHash, role: user.role }
+      })
+    }
 
-    console.log(`Seed OK — ${ROOMS.length} salles/devices, utilisateur démo ${DEMO_USER.email} / ${DEMO_USER.password}`)
+    const accounts = DEMO_USERS.map((u) => `${u.email} / ${u.password} (${u.role})`).join(', ')
+    console.log(`Seed OK — ${ROOMS.length} salles/devices, comptes démo : ${accounts}`)
   } finally {
     await prisma.$disconnect()
   }

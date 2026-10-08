@@ -151,7 +151,14 @@ export class CommandService {
 
     if (moved) {
       const status = ack.status === 'executed' ? 'ACKNOWLEDGED' : 'FAILED'
-      this.logger.info('command acknowledged by device', { ...logMeta, status, reason: ack.reason ?? undefined })
+      this.logger.info('command acknowledged by device', {
+        ...logMeta,
+        status,
+        reason: ack.reason ?? undefined,
+        // De la création à la réception de l'ACK par le backend : sert à
+        // calibrer COMMAND_ACK_TIMEOUT_MS sur des mesures réelles.
+        latencyMs: this.clock.now().getTime() - command.createdAt.getTime()
+      })
       return ack.status === 'executed' ? 'acknowledged' : 'failed'
     }
 

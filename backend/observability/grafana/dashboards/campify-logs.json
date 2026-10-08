@@ -28,7 +28,7 @@
       "targets": [
         {
           "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "{compose_service=\"backend\"} | json | deviceId=\"$deviceId\"",
+          "expr": "{compose_service=~\"backend|ingester|worker\"} | json | deviceId=\"$deviceId\"",
           "refId": "A"
         }
       ]
@@ -43,7 +43,7 @@
       "targets": [
         {
           "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "{compose_service=\"backend\", status=\"rejected\"}",
+          "expr": "{compose_service=~\"backend|ingester|worker\", status=\"rejected\"}",
           "refId": "A"
         }
       ]
@@ -58,7 +58,7 @@
       "targets": [
         {
           "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "{compose_service=\"backend\", status=\"rejected\"} | json | reason=\"duplicate\"",
+          "expr": "{compose_service=~\"backend|ingester|worker\", status=\"rejected\"} | json | reason=\"duplicate\"",
           "refId": "A"
         }
       ]
@@ -73,7 +73,7 @@
       "targets": [
         {
           "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "{compose_service=\"backend\", status=\"rejected\"} | json | reason=\"late\"",
+          "expr": "{compose_service=~\"backend|ingester|worker\", status=\"rejected\"} | json | reason=\"late\"",
           "refId": "A"
         }
       ]
@@ -88,7 +88,7 @@
       "targets": [
         {
           "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "{compose_service=\"backend\", eventType=\"mqtt_connection\"}",
+          "expr": "{compose_service=~\"backend|ingester|worker\", eventType=\"mqtt_connection\"}",
           "refId": "A"
         }
       ]
@@ -103,7 +103,7 @@
       "targets": [
         {
           "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "{compose_service=\"backend\"}",
+          "expr": "{compose_service=~\"backend|ingester|worker\"}",
           "refId": "A"
         }
       ]

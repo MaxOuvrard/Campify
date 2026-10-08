@@ -1,0 +1,46 @@
+
+=== Parcours de la commande f5112574-abac-446e-a5cf-aa41cbacc278 (8 lignes de log) ===
+
+  06:52:44.531  campify-api       command request received                                   received  idempotencyKey=demo-nominal-1
+  06:52:44.555  campify-api       command accepted                                           PENDING  idempotencyKey=demo-nominal-1
+  06:52:44.561  device-simulator  command received                                           received
+  06:52:44.569  device-simulator  command executed                                           executed  delivery=first
+  06:52:44.572  device-simulator  ack sent                                                   ack_sent  ackStatus=executed delivery=first
+  06:52:44.575  campify-ingester  command ack received                                       ack_received  ackStatus=executed
+  06:52:44.576  campify-api       command published                                          SENT  transitionApplied=true
+  06:52:44.779  campify-ingester  command acknowledged by device                             ACKNOWLEDGED  ackStatus=executed latencyMs=237
+
+=== Étapes ===
+
+  [x] Demande reçue par l'API
+  [x] Commande persistée (PENDING)
+  [x] Publiée sur MQTT, confirmée par le broker (SENT)
+  [x] Reçue par l'objet
+  [x] Exécutée par l'objet
+  [x] ACK émis par l'objet
+  [x] ACK reçu par le backend (ingester)
+  [x] État mis à jour par l'ACK (ACKNOWLEDGED / FAILED)
+
+  → Parcours complet.
+
+=== État persisté (base vérifiée) ===
+
+  {
+    "status": "ACKNOWLEDGED",
+    "type": "set_ventilation",
+    "params": {
+      "on": true
+    },
+    "createdAt": "2026-10-08T06:52:44.542Z",
+    "expiresAt": "2026-10-08T06:52:59.541Z",
+    "sentAt": "2026-10-08T06:52:44.561Z",
+    "ackedAt": "2026-10-08T06:52:44.569Z",
+    "timedOutAt": null,
+    "failureReason": null,
+    "reportedState": {
+      "ventilation": "on",
+      "target_temperature": null
+    },
+    "lateAckStatus": null,
+    "lateAckAt": null
+  }

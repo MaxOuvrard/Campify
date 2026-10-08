@@ -51,6 +51,7 @@ async function buildTestApp() {
     measurements,
     commandService,
     commands,
+    logger: new FakeLogger(),
     deviceAssociationService,
     staleThresholdMs: 5 * 60 * 1000
   })

@@ -168,7 +168,8 @@ fraîcheur de l'app (minutes).
 | `npm run prisma:migrate` | Applique les migrations en dev |
 | `npm run prisma:studio` | Interface d'exploration de la base |
 | `npm run prisma:seed` | Peuple les salles/devices de démo + l'utilisateur `demo@campify.local` |
-| `npm run simulate:devices` | Simule plusieurs devices MQTT en parallèle (scénarios J3), voir plus haut |
+| `npm run simulate:devices` | Simule plusieurs devices MQTT en parallèle (scénarios J3) et répond aux commandes (J4), voir plus haut |
+| `npm run trace:command -- <commandId>` | Reconstruit le parcours d'une commande depuis Loki + la base et indique l'étape en échec (J4) |
 
 ## Structure
 

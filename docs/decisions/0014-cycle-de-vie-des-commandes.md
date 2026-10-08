@@ -341,10 +341,22 @@ attribué à la nouvelle.
   ACK perdu/retardé, redélivrance, refus, session persistante). Il est
   lançable en conteneur (service `simulator`, profile) pour que ses logs
   JSON arrivent dans Loki.
-- `CommandService` reçoit un `Logger` : chaque transition est journalisée
-  (`eventType: command_lifecycle`, `commandId`, `status`, `reason`) par le
-  domaine, à la source qui la décide.
-- Le simulateur et tout futur firmware doivent respecter ce contrat.
+- Journalisation de bout en bout (`eventType: command_lifecycle` /
+  `command_ack`), chaque étape journalisée une seule fois, par la source qui
+  la voit :
+
+  | Étape | Process (`service`) | `msg` | Corrélation |
+  |---|---|---|---|
+  | demande reçue / refusée | `campify-api` | `command request received` / `rejected` | `idempotencyKey` (le `commandId` n'existe pas encore) |
+  | persistance | `campify-api` | `command accepted` (PENDING) | `commandId` + `idempotencyKey` |
+  | publication | `campify-api` | `command published` / `not published` / `publish unconfirmed` | `commandId` |
+  | réception, exécution, ACK | `device-simulator` | `command received`, `command executed`…, `ack sent` / `ack dropped` | `commandId` |
+  | réception de l'ACK | `campify-ingester` | `command ack received` | `commandId` |
+  | mise à jour de l'état | `campify-ingester` / `campify-worker` | `command acknowledged by device` (`latencyMs`), `late ack…`, `duplicate ack…`, `command timed out` | `commandId` |
+
+  Outils : dashboard Grafana « Campify — Commandes (J4) » et
+  `npm run trace:command -- <commandId>`, qui coche les étapes attendues et
+  désigne la première manquante.
 
 Voir aussi : [[0004-contrat-mqtt-placeholder]], [[0008-identite-devices-authentification-mqtt]],
 [[0010-session-mqtt-persistante]], [[0011-worker-consolidation-polling]].

@@ -1,0 +1,102 @@
+{
+  "title": "Campify — Commandes (J4)",
+  "uid": "campify-j4-commands",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "commandId",
+        "type": "textbox",
+        "label": "Command ID",
+        "current": { "text": "", "value": "" },
+        "query": ""
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Parcours de la commande $commandId (tous services, ordre chronologique)",
+      "description": "Toutes les lignes mentionnant ce commandId : API (persistance, publication), objet simulé (réception, exécution, ACK), ingester (réception de l'ACK), worker (timeout). La réception HTTP initiale, antérieure à la création du commandId, est corrélée par l'idempotencyKey (voir npm run trace:command). ADR 0014.",
+      "type": "logs",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 0 },
+      "options": { "sortOrder": "Ascending", "showTime": true, "wrapLogMessage": true, "enableLogDetails": true },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{compose_service=~\"backend|ingester|worker|simulator\"} |= \"$commandId\" | json",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Anomalies de commandes",
+      "description": "Timeouts, ACK tardifs, doublons (requête, commande, ACK), ACK perdus/retardés simulés, publication impossible ou non confirmée, ACK rejetés.",
+      "type": "logs",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 12 },
+      "options": { "sortOrder": "Descending", "showTime": true, "wrapLogMessage": true, "enableLogDetails": true },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{compose_service=~\"backend|ingester|worker|simulator\", eventType=~\"command_lifecycle|command_ack\"} | json | reason=~\"no_ack|no_ack_publish_unconfirmed|late_ack|duplicate_ack|duplicate_request|duplicate_command|simulated_ack_loss|simulated_ack_delay|simulated_silent_device|broker_unavailable|publish_unconfirmed|device_mismatch|unknown_command|idempotency_key_conflict\"",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Transitions d'état des commandes (par minute)",
+      "description": "Nombre de passages dans chaque état, journalisés par le domaine (API, ingester, worker).",
+      "type": "timeseries",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 12 },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "sum by (status) (count_over_time({compose_service=~\"backend|ingester|worker\", eventType=\"command_lifecycle\", status=~\"PENDING|SENT|ACKNOWLEDGED|FAILED|TIMEOUT\"}[1m]))",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Demandes reçues par l'API (acceptées et refusées)",
+      "description": "Première étape du parcours, avant toute création de commande (corrélée par idempotencyKey).",
+      "type": "logs",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 22 },
+      "options": { "sortOrder": "Descending", "showTime": true, "wrapLogMessage": true, "enableLogDetails": true },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{compose_service=\"backend\", eventType=\"command_lifecycle\"} | json | msg=~\"command request (received|rejected)\"",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Côté objet (simulateur) : réception, exécution, ACK",
+      "description": "Ce que l'objet dit avoir reçu, exécuté et acquitté — à comparer avec ce que le backend a reçu.",
+      "type": "logs",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 22 },
+      "options": { "sortOrder": "Descending", "showTime": true, "wrapLogMessage": true, "enableLogDetails": true },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{compose_service=\"simulator\", eventType=\"command_lifecycle\"}",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}
