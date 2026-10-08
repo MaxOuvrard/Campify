@@ -106,6 +106,27 @@ services:
       - mongo
       - backend
 
+  # Simulateur de devices (J3/J4, scripts/simulate-devices.ts) — derrière un
+  # profile : ne démarre PAS avec `docker compose up -d`. Tourne en conteneur
+  # pour que Promtail collecte ses logs JSON : c'est ce qui permet de suivre
+  # un commandId jusque DANS l'objet (réception, exécution, ACK) — voir
+  # docs/decisions/0014-cycle-de-vie-des-commandes.md. Options passées après
+  # le nom du service :
+  #   docker compose --profile simulator up -d simulator          (normal, sensor-001)
+  #   docker compose run --rm simulator --devices sensor-001 --drop-ack
+  simulator:
+    build: .
+    profiles: ['simulator']
+    environment:
+      MQTT_URL: mqtt://mosquitto:1883
+      # Mot de passe commun des identités sensor-00x générées en local
+      # (README, section Démarrage) — jamais celui d'un broker réel.
+      SIMULATOR_PASSWORD: changeme-local-only
+    entrypoint: ['npx', 'tsx', 'scripts/simulate-devices.ts']
+    command: ['--devices', 'sensor-001', '--qos', '1']
+    depends_on:
+      - mosquitto
+
   # Stack de centralisation/visualisation des logs (scénario J3). Un seul
   # `docker compose up -d` la démarre avec le reste — voir
   # docs/decisions/0009-stack-logs-centralises.md et

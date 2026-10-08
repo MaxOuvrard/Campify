@@ -87,6 +87,31 @@ l'ACL). Voir `npm run simulate:devices -- --help` pour les options
 Interrompre avec Ctrl+C ; un `kill -9`/fermeture brutale du terminal
 simule un capteur qui s'arrête sans déconnexion propre.
 
+**Commandes (J4).** Chaque device simulé s'abonne aussi à ses commandes,
+les exécute (ventilation, consigne : la ventilation fait baisser le CO2
+publié) et renvoie un ACK avec le même `command_id` — contrat et cycle de
+vie : [ADR 0014](../docs/decisions/0014-cycle-de-vie-des-commandes.md).
+Options pour provoquer les anomalies J4 :
+
+| Option | Effet | Résultat attendu côté backend |
+|---|---|---|
+| *(simulateur arrêté)* | objet hors ligne | `SENT` → `TIMEOUT` (`no_ack`) |
+| `--command-mode silent` | reçoit, n'exécute pas, n'acquitte pas | `TIMEOUT` ; logs objet `status: ignored` |
+| `--drop-ack` | exécute mais n'envoie pas l'ACK | `TIMEOUT` alors que la ventilation est allumée (CO2 en baisse) |
+| `--ack-delay 25000` | ACK envoyé 25 s après | `TIMEOUT` puis `late_ack` (`lateAck` rempli) |
+| `--redeliver` | retraite chaque commande 1 s après | une seule exécution, même ACK renvoyé, `duplicate_ack` côté backend |
+| `--command-mode reject` | refuse toute commande | `FAILED` (`rejected_by_device`) |
+| `--persistent-session` | session MQTT persistante | après une coupure : livraison tardive → ACK `expired`, rien d'exécuté |
+
+Pour que les logs du simulateur arrivent dans Loki/Grafana (suivi d'un
+`commandId` de bout en bout), le lancer en conteneur plutôt qu'avec
+`npm run` :
+
+```bash
+docker compose --profile simulator up -d --build simulator     # mode normal, sensor-001
+docker compose run --rm simulator --devices sensor-001 --drop-ack
+```
+
 ### Alternative : tout via Docker Compose
 
 `docker compose up -d --build` démarre aussi l'API, l'ingester et le

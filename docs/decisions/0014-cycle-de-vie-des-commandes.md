@@ -332,6 +332,15 @@ attribué à la nouvelle.
 - Migration `20261009110000_command_idempotency` : `requestedBy`,
   `idempotencyKey`, contrainte unique `(requestedBy, idempotencyKey)`
   (nullables pour les commandes antérieures : NULL n'entre pas en conflit).
+- Simulateur (`backend/scripts/simulate-devices.ts`) : chaque device
+  s'abonne à ses commandes et applique le contrat côté objet
+  (`scripts/device/commandHandler.ts`, testé dans
+  `test/scripts/deviceCommandHandler.test.ts`) : vérification
+  d'`expires_at`, dédup par `command_id` avec renvoi du même ACK,
+  exécution puis ACK. Des options provoquent les anomalies (silencieux,
+  ACK perdu/retardé, redélivrance, refus, session persistante). Il est
+  lançable en conteneur (service `simulator`, profile) pour que ses logs
+  JSON arrivent dans Loki.
 - `CommandService` reçoit un `Logger` : chaque transition est journalisée
   (`eventType: command_lifecycle`, `commandId`, `status`, `reason`) par le
   domaine, à la source qui la décide.

@@ -8,6 +8,9 @@ RUN npm ci
 
 COPY tsconfig.json ./
 COPY src ./src
+# Simulateur de devices (service `simulator`, profile du docker-compose) :
+# lancé via tsx, non compilé dans dist/.
+COPY scripts ./scripts
 
 RUN npx prisma generate
 RUN npm run build
