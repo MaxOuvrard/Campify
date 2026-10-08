@@ -6,6 +6,8 @@ import { useNetworkStatus } from '../hooks/useNetworkStatus'
 import { useAppForeground } from '../hooks/useAppForeground'
 import { formatDateTime, metricLabel } from '../utils/format'
 import { HistoryTarget } from '../store/appStore'
+import DeviceCommandPanel from '../components/DeviceCommandPanel'
+import { canSendCommands } from '../utils/jwt'
 
 interface RoomDetailScreenProps {
   token: string
@@ -53,6 +55,9 @@ export default function RoomDetailScreen({ token, room, onBack, onScanDevice, on
   const isConnected = useNetworkStatus()
   const hasData = useRef(false)
   const cacheKey = `room:${room.id}:measurements`
+  // Confort d'affichage uniquement : un VIEWER ne voit pas les commandes
+  // (le backend refuserait de toute façon, RBAC → 403).
+  const showCommands = canSendCommands(token)
 
   const load = useCallback(
     async (isRefresh: boolean) => {
@@ -174,6 +179,7 @@ export default function RoomDetailScreen({ token, room, onBack, onScanDevice, on
                       </TouchableOpacity>
                     ))}
                   </View>
+                  {showCommands && <DeviceCommandPanel token={token} deviceId={group.deviceId} offline={isConnected === false} />}
                 </View>
               ))
             )}

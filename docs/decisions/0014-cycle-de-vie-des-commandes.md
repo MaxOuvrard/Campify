@@ -312,12 +312,45 @@ attribué à la nouvelle.
   initial a été perdu, la commande finirait en `TIMEOUT` alors qu'elle a
   été exécutée.
 
+## Décision — Affichage côté mobile
+
+Règle : le mobile affiche **exactement ce que le backend sait**, jamais une
+supposition locale. Aucun bouton ne passe à « allumée » sur un simple
+appui (`mobile/src/utils/commandStatus.ts`) :
+
+| État | Affichage |
+|---|---|
+| envoi HTTP | « Envoi de la demande… » (ou « Connexion perdue, nouvel essai… ») |
+| `PENDING` | « Demande enregistrée… » |
+| `SENT` | « En attente de confirmation de l'objet… » + réponse attendue avant `expires_at` |
+| `ACKNOWLEDGED` | « ✓ Ventilation allumée/éteinte », d'après l'état **rapporté par l'objet** (`reportedState`), pas d'après la demande |
+| `FAILED` | « ✗ … : échec », avec un message par raison (`broker_unavailable`, `expired_on_device`, `rejected_by_device`) |
+| `TIMEOUT` | « ⚠ Pas de confirmation de l'objet — l'état réel est inconnu ». Jamais « échec », puisque l'objet a pu exécuter. Un ACK tardif éventuel est signalé |
+
+- **Suivi** : polling de `GET /commands/:id` toutes les secondes tant que
+  la commande est ouverte. Après un `TIMEOUT`, polling toutes les 3 s
+  pendant 30 s pour voir un ACK tardif. Garde-fou à 90 s : au-delà, le
+  suivi s'arrête et affiche « le serveur n'a toujours pas statué » (cas
+  d'un worker arrêté). Le push temps réel (WebSocket) a été écarté :
+  nouvelle infra pour un gain de moins d'une seconde.
+- **Idempotence** : une `Idempotency-Key` par appui, **réutilisée** pour
+  les 2 nouveaux essais automatiques sur erreur réseau (pas de réponse du
+  serveur). Après 3 échecs réseau, le message dit qu'on **ne sait pas** si
+  la demande est arrivée.
+- Boutons désactivés pendant qu'une commande est ouverte et quand le
+  téléphone est hors ligne. Le bloc est masqué pour un `VIEWER` (rôle lu
+  dans le JWT, pour le confort d'affichage seulement : la protection reste
+  le RBAC backend).
+
 ## Limites connues
 
 - Contrat défini par l'équipe, **non vérifié contre le kit réel** :
   aucune commande n'a été publiée vers le broker partagé du kit (voir
   ADR 0004). Un écart ne toucherait que `shared/mqttTopics.ts`,
   `driving/mqtt/schemas.ts` et `infra/mqtt/MqttCommandPublisher.ts`.
+- Le mobile suit l'état par polling. Si l'app est fermée pendant
+  l'attente, le résultat n'est pas notifié : il reste consultable via
+  l'API (pas d'historique des commandes dans l'app à ce stade).
 - `expires_at` suppose des horloges objet/backend raisonnablement
   synchronisées (NTP). Un objet en avance de plus de 15 s rejetterait
   tout en `expired`.
