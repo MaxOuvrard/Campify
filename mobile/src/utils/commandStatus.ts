@@ -67,9 +67,11 @@ export function describeCommand(command: Command): CommandDescription {
       const lateDetail =
         late === null
           ? "L'état réel est inconnu : l'objet a peut-être exécuté la commande sans que sa réponse nous parvienne."
-          : late.status === 'executed'
-            ? `L'objet a finalement confirmé l'exécution à ${time(late.at)}, après le délai.`
-            : `L'objet a finalement répondu à ${time(late.at)} : commande non exécutée.`
+          : // late.at = heure déclarée par l'objet (acked_at), pas l'heure de
+            // réception de sa réponse, qui est arrivée APRÈS le délai.
+            late.status === 'executed'
+            ? `L'objet a finalement répondu après le délai : commande exécutée à ${time(late.at)}.`
+            : "L'objet a finalement répondu après le délai : commande non exécutée."
       return { tone: 'unknown', title: '⚠ Pas de confirmation de l\'objet', detail: `${action} — ${lateDetail}` }
     }
   }

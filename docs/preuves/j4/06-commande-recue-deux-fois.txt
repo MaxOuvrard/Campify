@@ -1,0 +1,51 @@
+
+=== Parcours de la commande 7dd6b81c-23fd-4b5f-ae83-01fb5ab8a879 (13 lignes de log) ===
+
+  07:18:51.306  campify-api       command request received                                   received  idempotencyKey=j4-redeliver-1
+  07:18:51.314  campify-api       command accepted                                           PENDING  idempotencyKey=j4-redeliver-1
+  07:18:51.316  device-simulator  command received                                           received
+  07:18:51.321  campify-api       command published                                          SENT  transitionApplied=true
+  07:18:51.321  device-simulator  command executed                                           executed  delivery=first
+  07:18:51.326  device-simulator  ack sent                                                   ack_sent  ackStatus=executed delivery=first
+  07:18:51.327  campify-ingester  command ack received                                       ack_received  ackStatus=executed
+  07:18:51.385  campify-ingester  command acknowledged by device                             ACKNOWLEDGED  ackStatus=executed latencyMs=74
+  07:18:52.325  device-simulator  command redelivered (simulated)                            received  delivery=redelivery
+  07:18:52.326  device-simulator  command already processed: not executed again, same ack re-sent duplicate reason=duplicate_command  delivery=redelivery
+  07:18:52.330  campify-ingester  command ack received                                       ack_received  ackStatus=executed
+  07:18:52.330  device-simulator  ack sent                                                   ack_sent  ackStatus=executed delivery=redelivery
+  07:18:52.348  campify-ingester  duplicate ack ignored                                      ACKNOWLEDGED reason=duplicate_ack  ackStatus=executed
+
+=== Étapes ===
+
+  [x] Demande reçue par l'API
+  [x] Commande persistée (PENDING)
+  [x] Publiée sur MQTT, confirmée par le broker (SENT)
+  [x] Reçue par l'objet
+  [x] Exécutée par l'objet
+  [x] ACK émis par l'objet
+  [x] ACK reçu par le backend (ingester)
+  [x] État mis à jour par l'ACK (ACKNOWLEDGED / FAILED)
+
+  → Parcours complet.
+
+=== État persisté (base vérifiée) ===
+
+  {
+    "status": "ACKNOWLEDGED",
+    "type": "set_ventilation",
+    "params": {
+      "on": true
+    },
+    "createdAt": "2026-10-08T07:18:51.311Z",
+    "expiresAt": "2026-10-08T07:19:06.309Z",
+    "sentAt": "2026-10-08T07:18:51.315Z",
+    "ackedAt": "2026-10-08T07:18:51.321Z",
+    "timedOutAt": null,
+    "failureReason": null,
+    "reportedState": {
+      "ventilation": "on",
+      "target_temperature": null
+    },
+    "lateAckStatus": null,
+    "lateAckAt": null
+  }

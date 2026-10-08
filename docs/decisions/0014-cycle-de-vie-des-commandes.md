@@ -205,9 +205,12 @@ Alternatives écartées :
 La commande **reste `TIMEOUT`** : c'est ce que l'utilisateur a vu, et
 deux lectures successives ne doivent pas dire deux choses contradictoires.
 L'ACK n'est pas pour autant ignoré. Son statut et sa date sont conservés
-(`Command.lateAck`, exposé par l'API), ainsi que l'état rapporté
+(`Command.lateAck`, exposé par l'API ; `lateAck.at` est l'`acked_at`
+déclaré par l'objet, c'est-à-dire l'heure d'exécution, pas l'heure de
+réception de l'ACK), ainsi que l'état rapporté
 (`reportedState`). L'événement est journalisé avec `reason: late_ack`. Le
-mobile peut donc afficher « Expirée — l'objet a finalement confirmé à … ».
+mobile affiche donc « L'objet a finalement répondu après le délai :
+commande exécutée à … ».
 Seul le premier ACK tardif est conservé.
 
 Grâce à `expires_at`, un ACK tardif `executed` ne peut venir que d'un ACK
@@ -325,7 +328,7 @@ appui (`mobile/src/utils/commandStatus.ts`) :
 | `SENT` | « En attente de confirmation de l'objet… » + réponse attendue avant `expires_at` |
 | `ACKNOWLEDGED` | « ✓ Ventilation allumée/éteinte », d'après l'état **rapporté par l'objet** (`reportedState`), pas d'après la demande |
 | `FAILED` | « ✗ … : échec », avec un message par raison (`broker_unavailable`, `expired_on_device`, `rejected_by_device`) |
-| `TIMEOUT` | « ⚠ Pas de confirmation de l'objet — l'état réel est inconnu ». Jamais « échec », puisque l'objet a pu exécuter. Un ACK tardif éventuel est signalé |
+| `TIMEOUT` | « ⚠ Pas de confirmation de l'objet — l'état réel est inconnu ». Jamais « échec », puisque l'objet a pu exécuter. Un ACK tardif éventuel est signalé (« l'objet a finalement répondu après le délai… ») |
 
 - **Suivi** : polling de `GET /commands/:id` toutes les secondes tant que
   la commande est ouverte. Après un `TIMEOUT`, polling toutes les 3 s

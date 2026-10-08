@@ -123,7 +123,7 @@ describe('DeviceCommandPanel — attente, confirmation, incertitude', () => {
     expect(view.queryByText(/échec/i)).toBeNull()
 
     await advance(3_000)
-    expect(view.getByText(/finalement confirmé/)).toBeTruthy()
+    expect(view.getByText(/finalement répondu après le délai/)).toBeTruthy()
   })
 
   it('FAILED : la raison est expliquée', async () => {

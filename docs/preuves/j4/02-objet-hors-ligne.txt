@@ -1,0 +1,41 @@
+
+=== Parcours de la commande eddacfaa-7cfc-4bda-b8f5-2a2627b7328d (4 lignes de log) ===
+
+  07:17:35.550  campify-api       command request received                                   received  idempotencyKey=j4-offline-1
+  07:17:35.571  campify-api       command accepted                                           PENDING  idempotencyKey=j4-offline-1
+  07:17:35.584  campify-api       command published                                          SENT  transitionApplied=true
+  07:17:56.008  campify-worker    command timed out                                          TIMEOUT reason=no_ack  previousStatus=SENT
+
+=== Étapes ===
+
+  [x] Demande reçue par l'API
+  [x] Commande persistée (PENDING)
+  [x] Publiée sur MQTT, confirmée par le broker (SENT)
+  [ ] Reçue par l'objet
+  [ ] Exécutée par l'objet
+  [ ] ACK émis par l'objet
+  [ ] ACK reçu par le backend (ingester)
+  [ ] État mis à jour par l'ACK (ACKNOWLEDGED / FAILED)
+
+  Timeout déclaré par campify-worker à 07:17:56.008 (reason=no_ack)
+
+  → Chaîne interrompue à l'étape : « Reçue par l'objet »
+
+=== État persisté (base vérifiée) ===
+
+  {
+    "status": "TIMEOUT",
+    "type": "set_ventilation",
+    "params": {
+      "on": true
+    },
+    "createdAt": "2026-10-08T07:17:35.560Z",
+    "expiresAt": "2026-10-08T07:17:50.558Z",
+    "sentAt": "2026-10-08T07:17:35.573Z",
+    "ackedAt": null,
+    "timedOutAt": "2026-10-08T07:17:55.997Z",
+    "failureReason": null,
+    "reportedState": null,
+    "lateAckStatus": null,
+    "lateAckAt": null
+  }

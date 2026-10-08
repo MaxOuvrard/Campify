@@ -1,0 +1,52 @@
+
+=== Parcours de la commande 72365fab-048c-4afa-94d3-867930a807a0 (14 lignes de log) ===
+
+  07:18:51.799  campify-api       command request received                                   received  idempotencyKey=j4-apidup-1
+  07:18:51.818  campify-api       command accepted                                           PENDING  idempotencyKey=j4-apidup-1
+  07:18:51.823  device-simulator  command received                                           received
+  07:18:51.828  campify-api       command published                                          SENT  transitionApplied=true
+  07:18:51.832  device-simulator  command executed                                           executed  delivery=first
+  07:18:51.836  campify-ingester  command ack received                                       ack_received  ackStatus=executed
+  07:18:51.837  device-simulator  ack sent                                                   ack_sent  ackStatus=executed delivery=first
+  07:18:51.850  campify-ingester  command acknowledged by device                             ACKNOWLEDGED  ackStatus=executed latencyMs=44
+  07:18:52.239  campify-api       command request received                                   received  idempotencyKey=j4-apidup-1
+  07:18:52.271  campify-api       duplicate command request, existing command returned       ACKNOWLEDGED reason=duplicate_request  idempotencyKey=j4-apidup-1
+  07:18:52.661  campify-api       command request received                                   received  idempotencyKey=j4-apidup-1
+  07:18:52.674  campify-api       command request rejected                                   rejected reason=idempotency_key_conflict  idempotencyKey=j4-apidup-1 error=Idempotency-Key j4-apidup-1 was already used for a different command
+  07:19:03.789  campify-api       command request received                                   received  idempotencyKey=j4-apidup-1
+  07:19:03.804  campify-api       duplicate command request, existing command returned       ACKNOWLEDGED reason=duplicate_request  idempotencyKey=j4-apidup-1
+
+=== Étapes ===
+
+  [x] Demande reçue par l'API
+  [x] Commande persistée (PENDING)
+  [x] Publiée sur MQTT, confirmée par le broker (SENT)
+  [x] Reçue par l'objet
+  [x] Exécutée par l'objet
+  [x] ACK émis par l'objet
+  [x] ACK reçu par le backend (ingester)
+  [x] État mis à jour par l'ACK (ACKNOWLEDGED / FAILED)
+
+  → Parcours complet.
+
+=== État persisté (base vérifiée) ===
+
+  {
+    "status": "ACKNOWLEDGED",
+    "type": "set_ventilation",
+    "params": {
+      "on": true
+    },
+    "createdAt": "2026-10-08T07:18:51.806Z",
+    "expiresAt": "2026-10-08T07:19:06.804Z",
+    "sentAt": "2026-10-08T07:18:51.820Z",
+    "ackedAt": "2026-10-08T07:18:51.832Z",
+    "timedOutAt": null,
+    "failureReason": null,
+    "reportedState": {
+      "ventilation": "on",
+      "target_temperature": null
+    },
+    "lateAckStatus": null,
+    "lateAckAt": null
+  }

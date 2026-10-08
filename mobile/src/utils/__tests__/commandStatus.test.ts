@@ -63,7 +63,7 @@ describe('describeCommand — dire exactement ce que le système sait', () => {
   it('TIMEOUT avec ACK tardif le signale explicitement', () => {
     const d = describeCommand(command({ status: 'TIMEOUT', lateAck: { status: 'executed', at: '2026-10-08T10:00:25.000Z' } }))
     expect(d.tone).toBe('unknown')
-    expect(d.detail).toMatch(/finalement confirmé/)
+    expect(d.detail).toMatch(/finalement répondu après le délai : commande exécutée/)
   })
 
   it('isOpen ne vaut que pour PENDING et SENT', () => {

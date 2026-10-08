@@ -1,0 +1,49 @@
+
+=== Parcours de la commande 01f9faae-550d-4ee1-8dd8-8c112ea57bff (9 lignes de log) ===
+
+  07:20:57.769  campify-api       command request received                                   received  idempotencyKey=j4-expired-2
+  07:20:57.778  campify-api       command accepted                                           PENDING  idempotencyKey=j4-expired-2
+  07:20:57.786  campify-api       command published                                          SENT  transitionApplied=true
+  07:21:18.457  campify-worker    command timed out                                          TIMEOUT reason=no_ack  previousStatus=SENT
+  07:21:22.291  device-simulator  command received                                           received
+  07:21:22.295  device-simulator  command expired                                            expired reason=received_after_expires_at  delivery=first
+  07:21:22.298  campify-ingester  command ack received                                       ack_received  ackStatus=expired
+  07:21:22.315  campify-ingester  late ack after timeout                                     TIMEOUT reason=late_ack  ackStatus=expired
+  07:21:22.341  device-simulator  ack sent                                                   ack_sent  ackStatus=expired delivery=first
+
+=== Étapes ===
+
+  [x] Demande reçue par l'API
+  [x] Commande persistée (PENDING)
+  [x] Publiée sur MQTT, confirmée par le broker (SENT)
+  [x] Reçue par l'objet
+  [ ] Exécutée par l'objet  → à la place : expired (received_after_expires_at)
+  [x] ACK émis par l'objet
+  [x] ACK reçu par le backend (ingester)
+  [ ] État mis à jour par l'ACK (ACKNOWLEDGED / FAILED)  → à la place : late_ack
+
+  Timeout déclaré par campify-worker à 07:21:18.457 (reason=no_ack)
+
+  → Chaîne interrompue à l'étape : « Exécutée par l'objet »
+
+=== État persisté (base vérifiée) ===
+
+  {
+    "status": "TIMEOUT",
+    "type": "set_ventilation",
+    "params": {
+      "on": true
+    },
+    "createdAt": "2026-10-08T07:20:57.774Z",
+    "expiresAt": "2026-10-08T07:21:12.772Z",
+    "sentAt": "2026-10-08T07:20:57.780Z",
+    "ackedAt": null,
+    "timedOutAt": "2026-10-08T07:21:18.445Z",
+    "failureReason": null,
+    "reportedState": {
+      "ventilation": "off",
+      "target_temperature": null
+    },
+    "lateAckStatus": "expired",
+    "lateAckAt": "2026-10-08T07:21:22.295Z"
+  }
