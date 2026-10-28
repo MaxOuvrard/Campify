@@ -1,0 +1,52 @@
+# Preuve n°9 - Commande initiée depuis le téléphone (Expo Go, Android)
+# Salle 203 / sensor-001, compte operateur@campify.local, bouton « Allumer » du bloc Ventilation
+# Captures : docs/images/j4-mobile-1-avant.jpg, j4-mobile-2-attente.jpg, j4-mobile-3-confirme.jpg
+# Commande : npm run trace:command -- 8968f1c4-f21a-456c-9cb4-6c1148b3df24 (heures UTC ; téléphone en UTC+1)
+
+
+=== Parcours de la commande 8968f1c4-f21a-456c-9cb4-6c1148b3df24 (9 lignes de log) ===
+
+  07:48:55.199  campify-api       command request received                                   received  idempotencyKey=1b2ca827-5c30-43f1-a3d5-0bd067c6d188
+  07:48:55.231  campify-api       command accepted                                           PENDING  idempotencyKey=1b2ca827-5c30-43f1-a3d5-0bd067c6d188
+  07:48:55.241  device-simulator  command received                                           received
+  07:48:55.258  campify-api       command published                                          SENT  transitionApplied=true
+  07:48:55.258  device-simulator  command executed                                           executed  delivery=first
+  07:48:55.264  device-simulator  ack sent                                                   ack_sent  ackStatus=executed delivery=first
+  07:48:55.277  campify-ingester  command ack received                                       ack_received  ackStatus=executed
+  07:48:55.564  campify-ingester  command acknowledged by device                             ACKNOWLEDGED  ackStatus=executed latencyMs=349
+  07:48:56.312  ?                 incoming request
+
+=== Étapes ===
+
+  [x] Demande reçue par l'API
+  [x] Commande persistée (PENDING)
+  [x] Publiée sur MQTT, confirmée par le broker (SENT)
+  [x] Reçue par l'objet
+  [x] Exécutée par l'objet
+  [x] ACK émis par l'objet
+  [x] ACK reçu par le backend (ingester)
+  [x] État mis à jour par l'ACK (ACKNOWLEDGED / FAILED)
+
+  → Parcours complet.
+
+=== État persisté (base vérifiée) ===
+
+  {
+    "status": "ACKNOWLEDGED",
+    "type": "set_ventilation",
+    "params": {
+      "on": true
+    },
+    "createdAt": "2026-10-28T07:48:55.215Z",
+    "expiresAt": "2026-10-28T07:49:10.213Z",
+    "sentAt": "2026-10-28T07:48:55.239Z",
+    "ackedAt": "2026-10-28T07:48:55.257Z",
+    "timedOutAt": null,
+    "failureReason": null,
+    "reportedState": {
+      "ventilation": "on",
+      "target_temperature": null
+    },
+    "lateAckStatus": null,
+    "lateAckAt": null
+  }

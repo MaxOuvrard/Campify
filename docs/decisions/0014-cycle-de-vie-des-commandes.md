@@ -113,7 +113,7 @@ part vers un objet physique.
   coexisteraient pour le même objet.
 - **Valider le type de commande dans la route** : la règle serait
   dupliquée le jour où une autre entrée (ex. règle automatique) émettra des
-  commandes. Elle est donc portée par le domaine (voir CLAUDE.md).
+  commandes. Elle est donc portée par le domaine (voir [ADR 0001](0001-architecture-hexagonale.md)).
 
 ## Décision — Cycle de vie et timeout
 
