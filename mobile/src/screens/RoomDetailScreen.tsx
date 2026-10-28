@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
-import { ApiError, fetchLatestMeasurements, LatestMeasurement, Room } from '../api/client'
+import { ApiError, fetchLatestMeasurements, fetchRoomAlerts, LatestMeasurement, Room, RoomAlert } from '../api/client'
 import { readCache, writeCache } from '../storage/cache'
 import { useNetworkStatus } from '../hooks/useNetworkStatus'
 import { useAppForeground } from '../hooks/useAppForeground'
-import { formatDateTime, metricLabel } from '../utils/format'
+import { usePeriodicRefresh } from '../hooks/usePeriodicRefresh'
+import { alertLabel, formatDateTime, metricLabel } from '../utils/format'
 import { HistoryTarget } from '../store/appStore'
 
 interface RoomDetailScreenProps {
@@ -42,6 +43,10 @@ function groupByDevice(measurements: LatestMeasurement[]): DeviceGroup[] {
   return [...groups.values()].sort((a, b) => a.deviceName.localeCompare(b.deviceName))
 }
 
+function metricKey(deviceId: string, type: string): string {
+  return `${deviceId}:${type}`
+}
+
 export default function RoomDetailScreen({ token, room, onBack, onScanDevice, onOpenHistory }: RoomDetailScreenProps) {
   const [measurements, setMeasurements] = useState<LatestMeasurement[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -50,32 +55,52 @@ export default function RoomDetailScreen({ token, room, onBack, onScanDevice, on
   // Date des données actuellement affichées, cf. RoomListScreen : dernier
   // fetch réussi, ou date du cache tant qu'aucun fetch n'a encore abouti.
   const [dataAsOf, setDataAsOf] = useState<string | null>(null)
+  // Alertes chargées à part des mesures : un échec ne doit jamais se lire
+  // comme « aucune alerte » — on garde la dernière liste connue et on
+  // signale qu'elle n'a pas pu être mise à jour (`alertsUnavailable`).
+  const [alerts, setAlerts] = useState<RoomAlert[] | null>(null)
+  const [alertsAsOf, setAlertsAsOf] = useState<string | null>(null)
+  const [alertsUnavailable, setAlertsUnavailable] = useState(false)
+  const [showResolved, setShowResolved] = useState(false)
   const isConnected = useNetworkStatus()
   const hasData = useRef(false)
   const cacheKey = `room:${room.id}:measurements`
+  const alertsCacheKey = `room:${room.id}:alerts`
 
   const load = useCallback(
     async (isRefresh: boolean) => {
       isRefresh ? setRefreshing(true) : setLoading(!hasData.current)
       setError(null)
-      try {
-        const fresh = await fetchLatestMeasurements(token, room.id)
+      const [measurementsResult, alertsResult] = await Promise.allSettled([
+        fetchLatestMeasurements(token, room.id),
+        fetchRoomAlerts(token, room.id)
+      ])
+
+      if (measurementsResult.status === 'fulfilled') {
         hasData.current = true
-        setMeasurements(fresh)
+        setMeasurements(measurementsResult.value)
         setDataAsOf(new Date().toISOString())
-        void writeCache(cacheKey, fresh)
-      } catch (err) {
+        void writeCache(cacheKey, measurementsResult.value)
+      } else if (!hasData.current) {
         // Idem : si on a déjà quelque chose à l'écran (frais ou en cache),
         // une requête ratée ne doit pas le remplacer par un écran d'erreur.
-        if (!hasData.current) {
-          setError(err instanceof ApiError ? err.message : 'Erreur inattendue')
-        }
-      } finally {
-        setLoading(false)
-        setRefreshing(false)
+        const err = measurementsResult.reason
+        setError(err instanceof ApiError ? err.message : 'Erreur inattendue')
       }
+
+      if (alertsResult.status === 'fulfilled') {
+        setAlerts(alertsResult.value)
+        setAlertsAsOf(new Date().toISOString())
+        setAlertsUnavailable(false)
+        void writeCache(alertsCacheKey, alertsResult.value)
+      } else {
+        setAlertsUnavailable(true)
+      }
+
+      setLoading(false)
+      setRefreshing(false)
     },
-    [token, room.id, cacheKey]
+    [token, room.id, cacheKey, alertsCacheKey]
   )
 
   useEffect(() => {
@@ -88,13 +113,19 @@ export default function RoomDetailScreen({ token, room, onBack, onScanDevice, on
       setDataAsOf(entry.cachedAt)
       setLoading(false)
     })
+    void readCache<RoomAlert[]>(alertsCacheKey).then((entry) => {
+      if (cancelled || entry === null) return
+      setAlerts((current) => current ?? entry.data)
+      setAlertsAsOf((current) => current ?? entry.cachedAt)
+    })
     void load(false)
     return () => {
       cancelled = true
     }
-  }, [load, cacheKey])
+  }, [load, cacheKey, alertsCacheKey])
 
   useAppForeground(() => void load(false))
+  usePeriodicRefresh(() => void load(false))
 
   const wasConnected = useRef(isConnected)
   useEffect(() => {
@@ -103,6 +134,16 @@ export default function RoomDetailScreen({ token, room, onBack, onScanDevice, on
     }
     wasConnected.current = isConnected
   }, [isConnected, load])
+
+  const openAlerts = (alerts ?? []).filter((a) => a.status === 'open')
+  const resolvedAlerts = (alerts ?? []).filter((a) => a.status === 'resolved')
+  const measurementByKey = new Map((measurements ?? []).map((m) => [metricKey(m.deviceId, m.type), m]))
+  const alertKeys = new Set(openAlerts.map((a) => metricKey(a.deviceId, a.measurementType)))
+
+  const unitOf = (alert: RoomAlert): string => {
+    const unit = measurementByKey.get(metricKey(alert.deviceId, alert.measurementType))?.unit
+    return unit ? ` ${unit}` : ''
+  }
 
   return (
     <View style={styles.container}>
@@ -139,6 +180,58 @@ export default function RoomDetailScreen({ token, room, onBack, onScanDevice, on
             contentContainerStyle={styles.list}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} />}
           >
+            {alertsUnavailable && (
+              <View style={styles.banner}>
+                <Text style={styles.bannerText}>
+                  {alerts !== null && alertsAsOf
+                    ? `Alertes indisponibles — dernière liste connue du ${formatDateTime(alertsAsOf)}`
+                    : 'Alertes indisponibles'}
+                </Text>
+              </View>
+            )}
+
+            {openAlerts.length > 0 && (
+              <View style={styles.alertSection}>
+                <Text style={styles.sectionTitle}>Alertes en cours</Text>
+                {openAlerts.map((alert) => {
+                  const measurement = measurementByKey.get(metricKey(alert.deviceId, alert.measurementType))
+                  return (
+                    <View key={alert.id} style={styles.alertCard}>
+                      <Text style={styles.alertTitle}>
+                        ⚠ {alertLabel(alert.measurementType, alert.reason)} · {alert.deviceName}
+                      </Text>
+                      <Text style={styles.alertValue}>
+                        {alert.lastValue}
+                        {unitOf(alert)} (seuil {alert.threshold}
+                        {unitOf(alert)})
+                      </Text>
+                      <Text style={styles.alertDate}>En cours depuis le {formatDateTime(alert.openedAt)}</Text>
+                      {measurement && !measurement.fresh && (
+                        <Text style={styles.alertStale}>Capteur silencieux : état actuel inconnu</Text>
+                      )}
+                    </View>
+                  )
+                })}
+              </View>
+            )}
+
+            {resolvedAlerts.length > 0 && (
+              <View style={styles.resolvedSection}>
+                <TouchableOpacity onPress={() => setShowResolved((v) => !v)}>
+                  <Text style={styles.resolvedToggle}>
+                    {showResolved ? '▾' : '▸'} Revenues à la normale (24h) : {resolvedAlerts.length}
+                  </Text>
+                </TouchableOpacity>
+                {showResolved &&
+                  resolvedAlerts.map((alert) => (
+                    <Text key={alert.id} style={styles.resolvedItem}>
+                      {alertLabel(alert.measurementType, alert.reason)} · {alert.deviceName}, du {formatDateTime(alert.openedAt)} au{' '}
+                      {formatDateTime(alert.resolvedAt as string)}
+                    </Text>
+                  ))}
+              </View>
+            )}
+
             {measurements && measurements.length === 0 ? (
               <Text style={styles.empty}>Aucune mesure reçue pour l'instant pour cette salle.</Text>
             ) : (
@@ -147,32 +240,41 @@ export default function RoomDetailScreen({ token, room, onBack, onScanDevice, on
                 <View key={group.deviceId} style={styles.card}>
                   <Text style={styles.deviceName}>{group.deviceName}</Text>
                   <View style={styles.metricsRow}>
-                    {group.measurements.map((measurement, index) => (
-                      <TouchableOpacity
-                        key={measurement.type}
-                        style={[styles.metricColumn, index > 0 && styles.metricColumnDivider, !measurement.fresh && styles.metricColumnStale]}
-                        onPress={() =>
-                          onOpenHistory({ deviceId: group.deviceId, deviceName: group.deviceName, type: measurement.type })
-                        }
-                      >
-                        <View style={styles.cardHeader}>
-                          <Text style={styles.metricLabel}>{metricLabel(measurement.type)}</Text>
-                        </View>
-                        <Text style={styles.metricValue}>
-                          {measurement.value}
-                          {measurement.unit ? ` ${measurement.unit}` : ''}
-                        </Text>
-                        <Text style={styles.metricDate}>
-                          {measurement.fresh ? 'Mesuré le' : 'Dernière mesure connue le'} {formatDateTime(measurement.timestamp)}
-                        </Text>
-                        {!measurement.fresh && (
-                          <View style={styles.staleBadge}>
-                            <Text style={styles.staleBadgeText}>Capteur silencieux</Text>
+                    {group.measurements.map((measurement, index) => {
+                      const inAlert = alertKeys.has(metricKey(group.deviceId, measurement.type))
+                      return (
+                        <TouchableOpacity
+                          key={measurement.type}
+                          style={[
+                            styles.metricColumn,
+                            index > 0 && styles.metricColumnDivider,
+                            !measurement.fresh && styles.metricColumnStale,
+                            inAlert && styles.metricColumnAlert
+                          ]}
+                          onPress={() =>
+                            onOpenHistory({ deviceId: group.deviceId, deviceName: group.deviceName, type: measurement.type })
+                          }
+                        >
+                          <View style={styles.cardHeader}>
+                            <Text style={styles.metricLabel}>{metricLabel(measurement.type)}</Text>
+                            {inAlert && <Text style={styles.inAlertText}>En alerte</Text>}
                           </View>
-                        )}
-                        <Text style={styles.historyHint}>Voir l'historique ›</Text>
-                      </TouchableOpacity>
-                    ))}
+                          <Text style={styles.metricValue}>
+                            {measurement.value}
+                            {measurement.unit ? ` ${measurement.unit}` : ''}
+                          </Text>
+                          <Text style={styles.metricDate}>
+                            {measurement.fresh ? 'Mesuré le' : 'Dernière mesure connue le'} {formatDateTime(measurement.timestamp)}
+                          </Text>
+                          {!measurement.fresh && (
+                            <View style={styles.staleBadge}>
+                              <Text style={styles.staleBadgeText}>Capteur silencieux</Text>
+                            </View>
+                          )}
+                          <Text style={styles.historyHint}>Voir l'historique ›</Text>
+                        </TouchableOpacity>
+                      )
+                    })}
                   </View>
                 </View>
               ))
@@ -233,6 +335,57 @@ const styles = StyleSheet.create({
   list: {
     gap: 12
   },
+  alertSection: {
+    marginBottom: 12
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#991b1b',
+    marginBottom: 8
+  },
+  alertCard: {
+    backgroundColor: '#fef2f2',
+    borderLeftWidth: 4,
+    borderLeftColor: '#b91c1c',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8
+  },
+  alertTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#991b1b'
+  },
+  alertValue: {
+    fontSize: 15,
+    color: '#1f2937',
+    marginTop: 4
+  },
+  alertDate: {
+    fontSize: 13,
+    color: '#4b5563',
+    marginTop: 2
+  },
+  alertStale: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#92400e',
+    marginTop: 4
+  },
+  resolvedSection: {
+    marginBottom: 12
+  },
+  resolvedToggle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#166534'
+  },
+  resolvedItem: {
+    fontSize: 13,
+    color: '#374151',
+    marginTop: 6
+  },
   card: {
     backgroundColor: '#f4f6f8',
     borderRadius: 12,
@@ -264,6 +417,12 @@ const styles = StyleSheet.create({
   metricColumnStale: {
     opacity: 0.75
   },
+  metricColumnAlert: {
+    borderWidth: 2,
+    borderColor: '#b91c1c',
+    borderRadius: 8,
+    padding: 8
+  },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -272,6 +431,11 @@ const styles = StyleSheet.create({
   metricLabel: {
     fontSize: 14,
     color: '#555'
+  },
+  inAlertText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#991b1b'
   },
   staleBadge: {
     backgroundColor: '#c0392b',

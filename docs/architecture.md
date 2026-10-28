@@ -271,9 +271,21 @@ mesures, qu'elles viennent d'un fetch réussi ou du cache. Un fetch en échec
 ne remplace jamais ce qui est déjà affiché (donnée fraîche ou en cache) —
 l'écran d'erreur n'apparaît que si rien n'a encore pu être affiché.
 
-Trois déclencheurs de re-fetch automatique : montage de l'écran, retour au
+Quatre déclencheurs de re-fetch automatique : montage de l'écran, retour au
 premier plan (`useAppForeground`, sur `AppState`), retour réseau
-(`useNetworkStatus`, sur `NetInfo`). La connectivité du téléphone
+(`useNetworkStatus`, sur `NetInfo`), et toutes les 30 s tant que l'app est
+au premier plan (`usePeriodicRefresh`) — sans ce dernier, une alerte
+ouverte pendant qu'on regarde l'écran n'apparaîtrait pas.
+
+Alertes côté mobile : la liste des salles affiche « N alertes en cours »
+(`openAlertCount`) et place les salles en alerte en tête. Le détail d'une
+salle charge mesures et alertes en parallèle (`GET /rooms/:id/alerts?status=all`,
+cache `room:{id}:alerts`) : bloc « Alertes en cours », section repliable
+« Revenues à la normale (24h) », métrique concernée marquée « En alerte ».
+Un échec de l'appel des alertes n'est jamais affiché comme « aucune
+alerte » : les mesures restent visibles et un bandeau « Alertes
+indisponibles » (avec la date de la dernière liste connue, s'il y en a une)
+le signale. La connectivité du téléphone
 (`isConnected`, bannière "Téléphone hors ligne") est distincte de la
 fraîcheur d'une mesure (`fresh`, badge "Capteur silencieux") : un capteur
 qui se tait n'implique pas que le téléphone soit déconnecté, et

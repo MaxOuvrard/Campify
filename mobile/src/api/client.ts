@@ -44,6 +44,8 @@ export interface Room {
   createdAt: string
   /** Au moins une mesure périmée parmi les devices de la salle — voir domain/services/freshness.ts. */
   hasSilentDevice: boolean
+  /** Alertes en cours sur les devices de la salle — voir ADR 0014. */
+  openAlertCount: number
 }
 
 export interface LatestMeasurement {
@@ -82,6 +84,34 @@ export function fetchRooms(token: string): Promise<Room[]> {
 
 export function fetchLatestMeasurements(token: string, roomId: string): Promise<LatestMeasurement[]> {
   return authorizedGet<LatestMeasurement[]>(`/rooms/${roomId}/measurements/latest`, token)
+}
+
+export type AlertReason = 'above_max' | 'below_min'
+
+export interface RoomAlert {
+  id: string
+  deviceId: string
+  deviceName: string
+  measurementType: string
+  reason: AlertReason
+  threshold: number
+  triggerValue: number
+  openedAt: string
+  lastValue: number
+  lastSeenAt: string
+  resolvedAt: string | null
+  resolvedValue: number | null
+  status: 'open' | 'resolved'
+}
+
+/**
+ * Alertes en cours et alertes résolues dans les dernières 24h, en un seul
+ * appel (`status=all`, fenêtre bornée côté backend — voir
+ * domain/services/history.ts). Une alerte encore ouverte depuis plus de 24h
+ * est incluse : le backend renvoie les alertes actives sur la plage.
+ */
+export function fetchRoomAlerts(token: string, roomId: string): Promise<RoomAlert[]> {
+  return authorizedGet<RoomAlert[]>(`/rooms/${roomId}/alerts?status=all`, token)
 }
 
 export interface HistoryPoint {

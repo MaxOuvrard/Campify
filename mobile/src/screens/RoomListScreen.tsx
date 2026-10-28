@@ -4,7 +4,8 @@ import { ApiError, fetchRooms, Room } from '../api/client'
 import { readCache, writeCache } from '../storage/cache'
 import { useNetworkStatus } from '../hooks/useNetworkStatus'
 import { useAppForeground } from '../hooks/useAppForeground'
-import { formatDateTime } from '../utils/format'
+import { usePeriodicRefresh } from '../hooks/usePeriodicRefresh'
+import { formatDateTime, openAlertCountLabel } from '../utils/format'
 
 interface RoomListScreenProps {
   token: string
@@ -12,6 +13,12 @@ interface RoomListScreenProps {
 }
 
 const CACHE_KEY = 'rooms'
+
+// Salles en alerte d'abord (les plus touchées en tête), puis ordre
+// alphabétique : avec plusieurs salles, le problème se voit sans défiler.
+export function sortRooms(rooms: Room[]): Room[] {
+  return [...rooms].sort((a, b) => (b.openAlertCount ?? 0) - (a.openAlertCount ?? 0) || a.name.localeCompare(b.name))
+}
 
 export default function RoomListScreen({ token, onSelectRoom }: RoomListScreenProps) {
   const [rooms, setRooms] = useState<Room[] | null>(null)
@@ -62,6 +69,7 @@ export default function RoomListScreen({ token, onSelectRoom }: RoomListScreenPr
   }, [load])
 
   useAppForeground(() => void load())
+  usePeriodicRefresh(() => void load())
 
   const wasConnected = useRef(isConnected)
   useEffect(() => {
@@ -100,17 +108,24 @@ export default function RoomListScreen({ token, onSelectRoom }: RoomListScreenPr
         </View>
       )}
       <FlatList
-        data={rooms ?? []}
+        data={sortRooms(rooms ?? [])}
         keyExtractor={(room) => room.id}
         ListEmptyComponent={<Text style={styles.empty}>Aucune salle enregistrée.</Text>}
         renderItem={({ item }) => (
           <TouchableOpacity style={styles.row} onPress={() => onSelectRoom(item)}>
             <Text style={styles.roomName}>{item.name}</Text>
-            {item.hasSilentDevice && (
-              <View style={styles.silentBadge}>
-                <Text style={styles.silentBadgeText}>⚠️ Capteur silencieux</Text>
-              </View>
-            )}
+            <View style={styles.badges}>
+              {item.openAlertCount > 0 && (
+                <View style={styles.alertBadge}>
+                  <Text style={styles.alertBadgeText}>{openAlertCountLabel(item.openAlertCount)}</Text>
+                </View>
+              )}
+              {item.hasSilentDevice && (
+                <View style={styles.silentBadge}>
+                  <Text style={styles.silentBadgeText}>⚠️ Capteur silencieux</Text>
+                </View>
+              )}
+            </View>
           </TouchableOpacity>
         )}
       />
@@ -162,6 +177,21 @@ const styles = StyleSheet.create({
   },
   roomName: {
     fontSize: 17
+  },
+  badges: {
+    alignItems: 'flex-end',
+    gap: 4
+  },
+  alertBadge: {
+    backgroundColor: '#b91c1c',
+    borderRadius: 6,
+    paddingVertical: 2,
+    paddingHorizontal: 8
+  },
+  alertBadgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700'
   },
   silentBadge: {
     backgroundColor: '#fdf2f2',
