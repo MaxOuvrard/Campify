@@ -26,7 +26,7 @@ pilotage.
 ```
 backend/src/
 ├── domain/            # cœur métier, aucune dépendance vers l'extérieur
-│   ├── entities/         # Room, Device, Measurement, Command, User
+│   ├── entities/         # Room, Device, Measurement, Command, User, Alert
 │   ├── ports/            # interfaces vers l'infra
 │   └── services/         # logique métier pure : fraîcheur, dédup/retard, alertes, commandes
 │
@@ -107,7 +107,7 @@ par deux process distincts — voir [ADR 0013](decisions/0013-journal-brut-mongo
    (`driving/worker`, process séparé) : il relit le journal depuis son
    curseur, décode le message (`decodeTelemetry`), puis appelle
    `MeasurementIngestionService.consolidate()` (plausibilité, déduplication/
-   retard `domain/services/dedup.ts`, alertes). C'est elle qui alimente
+   retard `domain/services/dedup.ts`, alertes — voir [Alertes](#alertes)). C'est elle qui alimente
    l'API (dernière valeur, historique, présence).
 
 Progression du worker : un curseur `(receivedAt, id)` sauvegardé dans la
@@ -127,6 +127,22 @@ dernière mesure connue pour un device+type :
 - timestamp postérieur → accepté, devient le nouvel état courant.
 
 Détail et justification : [ADR 0005](decisions/0005-dedup-ordre-et-separation-base-brute-verifiee.md).
+
+## Alertes
+
+Une alerte n'est pas un événement par mesure mais un **incident avec un
+cycle de vie** sur un couple (device, type de mesure) : ouverte par la
+première mesure hors seuil, résolue par la première mesure revenue au-delà
+de la marge d'hystérésis (CO2 : > 1000 ppm, retour ≤ 900 ; température :
+hors 16–28 °C, retour à 17/27). Entre les deux, les mesures mettent
+seulement à jour la dernière valeur vue. Au plus une alerte ouverte par
+couple, garanti aussi en base (colonne `openKey` unique).
+
+Évaluée par `AlertService` dans le worker, après la dédup : un doublon ou
+un retard ne peut ni ouvrir ni fermer une alerte. Chaque transition est
+journalisée une seule fois (`eventType: 'alert'`, `status` `opened`/
+`resolved`, `alertId`, `eventId` de la mesure déclenchante). Détail,
+alternatives et limites : [ADR 0014](decisions/0014-alertes-cycle-de-vie-et-hysteresis.md).
 
 ## Fraîcheur et présence
 
@@ -267,6 +283,7 @@ inversement. Détail et justification :
 | Cache mobile | AsyncStorage | Dernière réponse connue par clé + date, best-effort — voir [ADR 0006](decisions/0006-cache-mobile-et-affichage-de-la-fraicheur.md) |
 | Auth & droits | JWT (`@fastify/jwt`) + RBAC | Distingue droits de consultation et droits de commande |
 | Auth MQTT | mosquitto password_file + ACL par device (broker local) | Un device ne peut publier que sur sa propre télémétrie — voir [ADR 0008](decisions/0008-identite-devices-authentification-mqtt.md) |
+| Alertes | `domain/services/alerts.ts` + `AlertService`, table `Alert` | Cycle de vie ouverte → résolue, hystérésis, une seule alerte ouverte par device+type — voir [ADR 0014](decisions/0014-alertes-cycle-de-vie-et-hysteresis.md) |
 | Plausibilité des mesures | `domain/services/plausibility.ts` | Bornes physiques par type de métrique, rejet avant la base vérifiée (trace conservée dans le journal brut) |
 | Logs | Pino (JSON), `eventType`/`eventId`/`status`/`reason` | Corrélation d'une mesure de sa réception à son traitement |
 | Centralisation des logs | Loki + Promtail + Grafana (`docker-compose.yml`) | Dashboard provisionné, filtres par device/rejets/doublons/retard/MQTT — voir [ADR 0009](decisions/0009-stack-logs-centralises.md) |

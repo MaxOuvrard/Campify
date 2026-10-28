@@ -36,6 +36,7 @@ model Device {
   createdAt    DateTime      @default(now())
   measurements Measurement[]
   commands     Command[]
+  alerts       Alert[]
 
   // Pas de champ "dernière vue" mutable : la présence d'un device se
   // dérive de MAX(receivedAt) sur ses mesures (MeasurementRepository), déjà
@@ -80,6 +81,34 @@ model Command {
   ackedAt   DateTime?
 
   @@index([deviceId])
+}
+
+// Incident de seuil (device, type de mesure) avec cycle de vie : ouvert puis
+// résolu — voir domain/services/alerts.ts et ADR 0014. Au plus une alerte
+// ouverte par couple : `openKey` vaut "deviceId:type" tant que l'alerte est
+// ouverte, NULL une fois résolue. PostgreSQL accepte plusieurs NULL dans une
+// colonne unique, ce qui équivaut à un index unique partiel
+// `WHERE resolvedAt IS NULL` — que Prisma 6 ne sait pas déclarer (un index
+// créé en SQL hors schéma serait supprimé au prochain `migrate dev`).
+model Alert {
+  id              String    @id @default(uuid())
+  device          Device    @relation(fields: [deviceId], references: [id])
+  deviceId        String
+  measurementType String
+  // 'above_max' | 'below_min' (domain/entities/Alert.ts)
+  reason          String
+  threshold       Float
+  triggerValue    Float
+  openedAt        DateTime
+  openedEventId   String?
+  lastValue       Float
+  lastSeenAt      DateTime
+  resolvedAt      DateTime?
+  resolvedValue   Float?
+  resolvedEventId String?
+  openKey         String?   @unique
+
+  @@index([deviceId, openedAt])
 }
 
 model User {

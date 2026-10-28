@@ -48,7 +48,7 @@ function setup(overrides: Partial<ConsolidationPollerDeps> = {}) {
   const checkpoints = new FakeCheckpointRepository()
   const deadLetters = new FakeDeadLetterRepository()
   const logger = new FakeLogger()
-  const ingestion = new MeasurementIngestionService(measurements, logger, [], [{ type: 'temperature', min: -40, max: 85 }])
+  const ingestion = new MeasurementIngestionService(measurements, logger, null, [{ type: 'temperature', min: -40, max: 85 }])
   const deps: ConsolidationPollerDeps = {
     topics,
     ingestion,

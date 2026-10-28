@@ -2,7 +2,7 @@ import { MeasurementRepository } from '../ports/MeasurementRepository'
 import { Logger } from '../ports/Logger'
 import { Measurement, NewMeasurement } from '../entities/Measurement'
 import { decideMeasurement, MeasurementRejectionReason } from './dedup'
-import { evaluateAlerts, AlertThreshold } from './alerts'
+import { AlertService } from './AlertService'
 import { isPlausibleValue, PlausibilityRange } from './plausibility'
 
 export type IngestionRejectionReason = MeasurementRejectionReason | 'implausible_value'
@@ -22,8 +22,9 @@ const EVENT_TYPE = 'measurement_ingestion'
  * bruts dans un journal (port `RawEventRepository`), et c'est le worker
  * (`driving/worker`) qui les décode puis appelle `consolidate()` pour
  * chaque mesure extraite. Ce service applique plausibilité puis
- * dédup/retard, écrit dans la base vérifiée si acceptée, et évalue les
- * alertes. Il ne décide jamais de la fraîcheur : elle se calcule à la
+ * dédup/retard, écrit dans la base vérifiée si acceptée, puis délègue la
+ * règle d'alerte à `AlertService` (ouverture/retour à la normale, ADR
+ * 0014). Il ne décide jamais de la fraîcheur : elle se calcule à la
  * lecture (domain/services/freshness.ts).
  *
  * Chaque appel journalise son issue (acceptée ou rejetée, avec motif) sous
@@ -35,7 +36,7 @@ export class MeasurementIngestionService {
   constructor(
     private readonly measurements: MeasurementRepository,
     private readonly logger: Logger,
-    private readonly thresholds: AlertThreshold[] = [],
+    private readonly alerting: AlertService | null = null,
     private readonly plausibilityRanges: PlausibilityRange[] = []
   ) {}
 
@@ -79,9 +80,7 @@ export class MeasurementIngestionService {
       status: 'ingested'
     })
 
-    for (const alert of evaluateAlerts(measurement, this.thresholds)) {
-      this.logger.warn('threshold alert', { eventType: EVENT_TYPE, eventId, ...alert })
-    }
+    await this.alerting?.evaluate(measurement, eventId)
 
     return { accepted: true, measurement }
   }

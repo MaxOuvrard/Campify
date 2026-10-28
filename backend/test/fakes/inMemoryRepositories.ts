@@ -4,11 +4,13 @@ import { MeasurementRepository } from '../../src/domain/ports/MeasurementReposit
 import { CommandRepository } from '../../src/domain/ports/CommandRepository'
 import { RoomRepository } from '../../src/domain/ports/RoomRepository'
 import { UserRepository } from '../../src/domain/ports/UserRepository'
+import { AlertRepository } from '../../src/domain/ports/AlertRepository'
 import { Device } from '../../src/domain/entities/Device'
 import { Measurement, NewMeasurement } from '../../src/domain/entities/Measurement'
 import { Command, CommandStatus, NewCommand } from '../../src/domain/entities/Command'
 import { Room } from '../../src/domain/entities/Room'
 import { User } from '../../src/domain/entities/User'
+import { Alert, AlertUpdate, NewAlert } from '../../src/domain/entities/Alert'
 
 export class InMemoryDeviceRepository implements DeviceRepository {
   private readonly devices = new Map<string, Device>()
@@ -165,5 +167,46 @@ export class InMemoryUserRepository implements UserRepository {
 
   seed(user: User): void {
     this.users.set(user.id, user)
+  }
+}
+
+export class InMemoryAlertRepository implements AlertRepository {
+  readonly alerts: Alert[] = []
+
+  async findOpen(deviceId: string, measurementType: string): Promise<Alert | null> {
+    return this.alerts.find((a) => a.deviceId === deviceId && a.measurementType === measurementType && a.resolvedAt === null) ?? null
+  }
+
+  async open(input: NewAlert): Promise<Alert> {
+    const existing = await this.findOpen(input.deviceId, input.measurementType)
+    if (existing) return existing
+    const alert: Alert = {
+      id: randomUUID(),
+      ...input,
+      lastValue: input.triggerValue,
+      lastSeenAt: input.openedAt,
+      resolvedAt: null,
+      resolvedValue: null,
+      resolvedEventId: null
+    }
+    this.alerts.push(alert)
+    return alert
+  }
+
+  async recordOngoing(id: string, update: AlertUpdate): Promise<void> {
+    const alert = this.alerts.find((a) => a.id === id)
+    if (!alert) return
+    alert.lastValue = update.value
+    alert.lastSeenAt = update.at
+  }
+
+  async resolve(id: string, update: AlertUpdate): Promise<void> {
+    const alert = this.alerts.find((a) => a.id === id)
+    if (!alert) return
+    alert.lastValue = update.value
+    alert.lastSeenAt = update.at
+    alert.resolvedAt = update.at
+    alert.resolvedValue = update.value
+    alert.resolvedEventId = update.eventId
   }
 }

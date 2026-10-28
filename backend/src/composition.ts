@@ -13,9 +13,11 @@ import { PrismaDeviceRepository } from './infra/db/PrismaDeviceRepository'
 import { PrismaMeasurementRepository } from './infra/db/PrismaMeasurementRepository'
 import { PrismaCommandRepository } from './infra/db/PrismaCommandRepository'
 import { PrismaUserRepository } from './infra/db/PrismaUserRepository'
+import { PrismaAlertRepository } from './infra/db/PrismaAlertRepository'
 import { MqttCommandPublisher } from './infra/mqtt/MqttCommandPublisher'
 import { systemClock } from './domain/ports/Clock'
 import { MeasurementIngestionService } from './domain/services/MeasurementIngestionService'
+import { AlertService } from './domain/services/AlertService'
 import { CommandService } from './domain/services/CommandService'
 import { DeviceAssociationService } from './domain/services/deviceAssociation'
 import { attachMqttSubscriptions } from './driving/mqtt/client'
@@ -27,9 +29,14 @@ import type { FastifyInstance } from 'fastify'
 import type { MqttClient } from 'mqtt'
 import type { PrismaClient } from '@prisma/client'
 
-// PLACEHOLDER : seuils d'alerte réels à définir une fois le contrat de
-// mesures du kit connu (types de capteurs, unités, bornes).
-const alertThresholds: AlertThreshold[] = []
+// Seuils d'alerte (ADR 0014) : ouverture au franchissement, retour à la
+// normale seulement après la marge d'hystérésis. CO2 : 1000 ppm, repère
+// courant de qualité d'air intérieur, retour à 900. Température : confort
+// 16–28 °C, retour à 17 / 27.
+const alertThresholds: AlertThreshold[] = [
+  { type: 'co2', max: 1000, hysteresis: 100 },
+  { type: 'temperature', min: 16, max: 28, hysteresis: 1 }
+]
 
 // Bornes de plausibilité physique par type de mesure (kit démo : capteur
 // intérieur température/CO2). Une valeur hors bornes est rejetée avant
@@ -176,7 +183,8 @@ export async function startWorker(): Promise<WorkerApplication> {
   const checkpoints = new MongoConsolidationCheckpointRepository(mongo.db)
   const deadLetters = new MongoDeadLetterRepository(mongo.db)
 
-  const ingestion = new MeasurementIngestionService(measurements, logger, alertThresholds, plausibilityRanges)
+  const alerting = new AlertService(new PrismaAlertRepository(prisma), logger, alertThresholds)
+  const ingestion = new MeasurementIngestionService(measurements, logger, alerting, plausibilityRanges)
 
   const stopPolling = startConsolidationPolling({
     topics,

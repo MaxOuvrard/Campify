@@ -1,7 +1,8 @@
 import { test } from 'node:test'
 import * as assert from 'node:assert'
 import { MeasurementIngestionService } from '../../../src/domain/services/MeasurementIngestionService'
-import { InMemoryDeviceRepository, InMemoryMeasurementRepository } from '../../fakes/inMemoryRepositories'
+import { InMemoryAlertRepository, InMemoryDeviceRepository, InMemoryMeasurementRepository } from '../../fakes/inMemoryRepositories'
+import { AlertService } from '../../../src/domain/services/AlertService'
 import { FakeLogger } from '../../fakes/testDoubles'
 
 test('ingests the first measurement and makes it the device latest received measurement', async () => {
@@ -40,7 +41,7 @@ test('falls back to a placeholder eventId when no messageId is provided', async 
   const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
   const measurements = new InMemoryMeasurementRepository()
   const logger = new FakeLogger()
-  const service = new MeasurementIngestionService(measurements, logger, [], [{ type: 'temperature', min: -40, max: 85 }])
+  const service = new MeasurementIngestionService(measurements, logger, null, [{ type: 'temperature', min: -40, max: 85 }])
 
   await service.consolidate({ deviceId: device.id, type: 'temperature', value: 999, timestamp: new Date('2024-01-01T00:00:00Z') })
 
@@ -66,16 +67,41 @@ test('rejects a duplicate measurement and logs a warning', async () => {
   assert.ok(logger.entries.some((e) => e.level === 'warn' && e.msg === 'measurement rejected'))
 })
 
-test('logs a threshold alert when a measurement exceeds its bounds', async () => {
+test('opens a single alert for repeated out-of-threshold measurements', async () => {
   const devices = new InMemoryDeviceRepository()
-  const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
+  const device = await devices.create({ name: 'Sensor 1', type: 'co2', roomId: 'room-1' })
   const measurements = new InMemoryMeasurementRepository()
+  const alerts = new InMemoryAlertRepository()
   const logger = new FakeLogger()
-  const service = new MeasurementIngestionService(measurements, logger, [{ type: 'temperature', max: 25 }])
+  const alerting = new AlertService(alerts, logger, [{ type: 'co2', max: 1000, hysteresis: 100 }])
+  const service = new MeasurementIngestionService(measurements, logger, alerting)
 
-  await service.consolidate({ deviceId: device.id, type: 'temperature', value: 30, timestamp: new Date('2024-01-01T00:00:00Z') })
+  for (let i = 0; i < 10; i++) {
+    await service.consolidate({ deviceId: device.id, type: 'co2', value: 1200 + i, timestamp: new Date(Date.UTC(2024, 0, 1, 0, i)), messageId: `msg-${i}` })
+  }
 
-  assert.ok(logger.entries.some((e) => e.level === 'warn' && e.msg === 'threshold alert'))
+  assert.equal(alerts.alerts.length, 1)
+  assert.equal(alerts.alerts[0].lastValue, 1209)
+  assert.equal(logger.entries.filter((e) => e.msg === 'alert opened').length, 1)
+})
+
+test('a duplicate or late measurement never touches the alert state', async () => {
+  const devices = new InMemoryDeviceRepository()
+  const device = await devices.create({ name: 'Sensor 1', type: 'co2', roomId: 'room-1' })
+  const measurements = new InMemoryMeasurementRepository()
+  const alerts = new InMemoryAlertRepository()
+  const logger = new FakeLogger()
+  const alerting = new AlertService(alerts, logger, [{ type: 'co2', max: 1000, hysteresis: 100 }])
+  const service = new MeasurementIngestionService(measurements, logger, alerting)
+
+  await service.consolidate({ deviceId: device.id, type: 'co2', value: 1200, timestamp: new Date('2024-01-01T00:10:00Z'), messageId: 'msg-1' })
+  // Retard : une vieille valeur normale ne doit pas résoudre l'alerte.
+  await service.consolidate({ deviceId: device.id, type: 'co2', value: 500, timestamp: new Date('2024-01-01T00:05:00Z'), messageId: 'msg-0' })
+  // Doublon : retransmission QoS 1 de la mesure d'ouverture.
+  await service.consolidate({ deviceId: device.id, type: 'co2', value: 1200, timestamp: new Date('2024-01-01T00:10:00Z'), messageId: 'msg-1' })
+
+  assert.equal(alerts.alerts.length, 1)
+  assert.equal(alerts.alerts[0].resolvedAt, null)
 })
 
 test('rejects an implausible value', async () => {
@@ -83,7 +109,7 @@ test('rejects an implausible value', async () => {
   const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
   const measurements = new InMemoryMeasurementRepository()
   const logger = new FakeLogger()
-  const service = new MeasurementIngestionService(measurements, logger, [], [{ type: 'temperature', min: -40, max: 85 }])
+  const service = new MeasurementIngestionService(measurements, logger, null, [{ type: 'temperature', min: -40, max: 85 }])
 
   const result = await service.consolidate({ deviceId: device.id, type: 'temperature', value: 999, timestamp: new Date('2024-01-01T00:00:00Z') })
 
@@ -97,7 +123,7 @@ test('does not let an implausible value overwrite the current latest measurement
   const device = await devices.create({ name: 'Sensor 1', type: 'temperature', roomId: 'room-1' })
   const measurements = new InMemoryMeasurementRepository()
   const logger = new FakeLogger()
-  const service = new MeasurementIngestionService(measurements, logger, [], [{ type: 'temperature', min: -40, max: 85 }])
+  const service = new MeasurementIngestionService(measurements, logger, null, [{ type: 'temperature', min: -40, max: 85 }])
 
   await service.consolidate({ deviceId: device.id, type: 'temperature', value: 21, timestamp: new Date('2024-01-01T00:00:00Z') })
   await service.consolidate({ deviceId: device.id, type: 'temperature', value: 999, timestamp: new Date('2024-01-01T00:01:00Z') })
