@@ -92,3 +92,29 @@ L'ingester n'écrit plus dans une base brute Prisma : il insère chaque
 message MQTT tel quel dans MongoDB, sans le parser. Plusieurs instances
 écrivent dans la même collection ; le worker les relit toutes dans l'ordre
 `receivedAt`. Voir [ADR 0013](0013-journal-brut-mongodb-et-base-verifiee-timescaledb.md).
+
+## Addendum J5 — sessions orphelines et souscription partagée
+
+La conséquence « perte de la mémorisation pour l'ancienne session » jugée
+acceptable ci-dessus était sous-estimée : l'ancienne session n'est pas
+seulement oubliée, elle **reste membre du groupe partagé** côté broker.
+Mosquitto continue de lui attribuer sa part des messages, mis en attente
+pour un client qui ne reviendra jamais. Mesuré en J5 après plusieurs
+recréations du conteneur : 4 sessions dans le groupe pour un seul ingester
+actif, **61 messages reçus sur 240** — sans aucune erreur dans les logs
+(détail et diagnostic : [docs/J5.md](../J5.md), preuve
+[j5/01](../preuves/j5/01-alertes-multi-salles-cadence-kit.md)).
+
+Correctif :
+
+- `clientId` lu dans `MQTT_CLIENT_ID` (`campify-ingester-1` dans
+  `docker-compose.yml`), le hostname ne servant plus que de repli hors
+  Docker. Plusieurs instances = un service par instance, chacun son
+  identifiant ; `--scale` n'est plus utilisable (même identifiant pour
+  toutes, elles se déconnecteraient mutuellement).
+- `persistent_client_expiration 1h` dans `mosquitto.conf` : filet de
+  sécurité si un identifiant change malgré tout. Ne s'applique qu'à notre
+  broker local, pas à celui du kit.
+
+Après correctif : 77 mesures consolidées par salle sur ~79 publiées pendant
+l'essai, délai de bout en bout p95 5,4 s (contre 14,3 s).

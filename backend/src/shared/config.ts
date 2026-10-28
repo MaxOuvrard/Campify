@@ -30,6 +30,12 @@ const envSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v && v.length > 0 ? v : undefined)),
+  // clientId MQTT de l'ingester (session persistante, ADR 0010) : doit rester
+  // le même d'un redémarrage à l'autre, et être distinct par instance.
+  MQTT_CLIENT_ID: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.length > 0 ? v : undefined)),
   JWT_SECRET: z.string(),
   // Délai laissé à un objet pour exécuter une commande : sert de date
   // d'expiration (`expires_at`) envoyée à l'objet — voir ADR 0014.

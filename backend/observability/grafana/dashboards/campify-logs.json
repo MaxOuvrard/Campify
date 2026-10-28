@@ -14,6 +14,13 @@
         "label": "Device ID",
         "current": { "text": "sensor-001", "value": "sensor-001" },
         "query": "sensor-001"
+      },
+      {
+        "name": "eventId",
+        "type": "textbox",
+        "label": "eventId (message_id d'une mesure)",
+        "current": { "text": "", "value": "" },
+        "query": ""
       }
     ]
   },
@@ -104,6 +111,37 @@
         {
           "datasource": { "type": "loki", "uid": "loki" },
           "expr": "{compose_service=~\"backend|ingester|worker\"}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Suivi d'une mesure ($eventId)",
+      "description": "Toutes les lignes d'une mesure, eventId = message_id MQTT : publication (simulateur), consolidation ou rejet (worker), alerte ouverte/résolue qu'elle a provoquée. Le label compose_service indique le process.",
+      "type": "logs",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 24 },
+      "options": { "showLabels": true, "sortOrder": "Ascending" },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{compose_service=~\"backend|ingester|worker|simulator\"} | json | eventId=\"$eventId\"",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Alertes (ouvertures et retours à la normale)",
+      "description": "eventType=alert : une ligne opened puis une ligne resolved par incident (ADR 0015), jamais une par mesure.",
+      "type": "logs",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 34 },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{compose_service=~\"backend|ingester|worker|simulator\", eventType=\"alert\"}",
           "refId": "A"
         }
       ]

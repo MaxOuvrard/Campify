@@ -65,11 +65,11 @@ services:
 
   # Ingester (ADR 0012) : seul abonné MQTT (mesures + accusés), écrit en
   # journal MongoDB uniquement — jamais de mesure vérifiée. Session
-  # persistante (clientId dérivé du hostname du conteneur, voir
-  # composition.ts), donc rattrape ce qui a été publié pendant une coupure
+  # persistante (clientId stable MQTT_CLIENT_ID, voir composition.ts), donc rattrape ce qui a été publié pendant une coupure
   # (ADR 0010). MQTT_SHARED_GROUP défini ici (contrairement à `.env`) pour
-  # pouvoir scaler : `docker compose up -d --scale ingester=3` répartit
-  # alors les messages entre les 3 instances au lieu de les tripler.
+  # pouvoir répartir les messages entre plusieurs instances au lieu de les
+  # tripler — chacune avec son propre MQTT_CLIENT_ID stable (pas de
+  # `--scale`, qui donnerait le même identifiant à toutes).
   ingester:
     build: .
     env_file:
@@ -79,6 +79,11 @@ services:
       MONGO_URL: mongodb://mongo:27017/campify_raw
       MQTT_URL: mqtt://backend:changeme-local-only@mosquitto:1883
       MQTT_SHARED_GROUP: campify-ingesters
+      # clientId stable (voir composition.ts, docs/J5.md) : sans lui, chaque
+      # recréation du conteneur laissait une session orpheline dans le groupe
+      # partagé, qui « volait » sa part des messages. Pour plusieurs
+      # instances, un service par instance avec chacun son identifiant.
+      MQTT_CLIENT_ID: campify-ingester-1
       LOG_FORMAT: json
       SERVICE_NAME: campify-ingester
     command: ['node', 'dist/ingester.js']

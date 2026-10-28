@@ -288,8 +288,9 @@ coupure/reprise du broker.
 persistante, le broker ne mémorise aucun abonnement pour un client
 déconnecté et ne met donc rien en attente pour lui, quel que soit le QoS
 de publication. `composition.ts` (`startIngester`) connecte l'ingester
-avec un `clientId` stable (dérivé du hostname du conteneur, voir
-[ADR 0012](decisions/0012-ingester-separe-souscription-partagee.md)) et
+avec un `clientId` stable (`MQTT_CLIENT_ID`, `campify-ingester-1` dans le
+compose — plus le hostname du conteneur, qui change à chaque recréation, voir
+l'addendum J5 de l'[ADR 0012](decisions/0012-ingester-separe-souscription-partagee.md)) et
 `clean: false` précisément pour ça — voir
 [ADR 0010](decisions/0010-session-mqtt-persistante.md), qui documente la
 perte constatée avant ce réglage et sa disparition après, preuve à
@@ -393,7 +394,7 @@ texte « En alerte », « Capteur silencieux »). Éléments actionnables avec
 | Plausibilité des mesures | `domain/services/plausibility.ts` | Bornes physiques par type de métrique, rejet avant la base vérifiée (trace conservée dans le journal brut) |
 | Logs | Pino (JSON), `eventType`/`eventId`/`status`/`reason` | Corrélation d'une mesure de sa réception à son traitement |
 | Centralisation des logs | Loki + Promtail + Grafana (`docker-compose.yml`) | Dashboard provisionné, filtres par device/rejets/doublons/retard/MQTT — voir [ADR 0009](decisions/0009-stack-logs-centralises.md) |
-| Session MQTT ingester | `clientId` dérivé du hostname + `clean: false` | Sans ça, QoS 1 seul ne suffit pas à survivre à une coupure — voir [ADR 0010](decisions/0010-session-mqtt-persistante.md) |
+| Session MQTT ingester | `clientId` stable (`MQTT_CLIENT_ID`) + `clean: false` ; sessions orphelines expirées après 1h par le broker local | Sans ça, QoS 1 seul ne suffit pas à survivre à une coupure — voir [ADR 0010](decisions/0010-session-mqtt-persistante.md) |
 | Ingestion MQTT | Process `ingester` séparé de l'API, souscription partagée (`$share/<groupe>/...`) | L'API ne touche plus jamais le journal brut ; plusieurs instances de l'ingester se répartissent les messages (vérifié : 6 messages → 6 lignes avec 3 instances, pas 18) — voir [ADR 0012](decisions/0012-ingester-separe-souscription-partagee.md) |
 | Consolidation des mesures | Worker séparé, polling ~3s (`driving/worker`) | Dédup/écriture base vérifiée hors du process API — un pic MQTT ne ralentit plus les réponses API. Polling plutôt que Redis : pas de nouvelle techno, absorbe mieux les rafales — voir [ADR 0011](decisions/0011-worker-consolidation-polling.md) |
 | Tests | `node:test` + fakes en mémoire (backend), Jest + `jest-expo` (mobile) | Unitaires sur `domain/services`, intégration par adapter (Prisma, handler MQTT), coupure/retour réseau et reprise d'app côté mobile |

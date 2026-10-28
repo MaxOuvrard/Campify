@@ -26,6 +26,7 @@ import mqtt, { MqttClient } from 'mqtt'
 import { parseArgs } from 'node:util'
 import { randomUUID } from 'node:crypto'
 import { CommandMode, DeviceCommandHandler, DeviceState, HandleResult } from './device/commandHandler'
+import { co2At, Co2Profile } from './device/co2Scenario'
 import { log } from './device/log'
 
 interface DeviceSpec {
@@ -47,6 +48,8 @@ interface SimulatorOptions {
   ackDelayMs: number
   redeliver: boolean
   persistentSession: boolean
+  /** Mode scénario J5 (co2Scenario.ts) : ces devices font le pic, les autres restent calmes. null = marche aléatoire. */
+  co2Spike: string[] | null
 }
 
 const HELP = `Simulateur de devices MQTT (Campify, J3/J4)
@@ -62,6 +65,9 @@ Télémétrie :
   --qos <0|1>               Défaut : 0
   --retain                  Publie chaque message avec le flag retained
   --duplicate-rate <0..1>   Probabilité de republier le même message_id juste après (retransmission simulée). Défaut : 0
+  --co2-spike <ids>         Scénario d'alerte J5 reproductible (ADR 0015) : ces devices font un pic de CO2
+                            600 → 1200 → 800 ppm sur ~2 min (une alerte, un retour à la normale), tous les
+                            autres restent à ~600 ppm et 20–24 °C (aucune alerte). Indépendant de --interval.
 
 Commandes (J4, voir docs/decisions/0014-cycle-de-vie-des-commandes.md) :
   --command-mode <mode>     normal (défaut) : exécute puis acquitte
@@ -80,6 +86,7 @@ Exemples :
   npm run simulate:devices -- --password changeme-local-only --devices sensor-001 --drop-ack
   npm run simulate:devices -- --password changeme-local-only --devices sensor-001 --ack-delay 25000
   docker compose run --rm simulator --devices sensor-001 --redeliver
+  npm run simulate:devices -- --password changeme-local-only --co2-spike sensor-001 --interval 100 --qos 1
 `
 
 function parseOptions(argv: string[]): SimulatorOptions | null {
@@ -100,6 +107,7 @@ function parseOptions(argv: string[]): SimulatorOptions | null {
       'ack-delay': { type: 'string', default: '0' },
       redeliver: { type: 'boolean', default: false },
       'persistent-session': { type: 'boolean', default: false },
+      'co2-spike': { type: 'string' },
       help: { type: 'boolean', default: false }
     }
   })
@@ -136,7 +144,8 @@ function parseOptions(argv: string[]): SimulatorOptions | null {
     dropAck: Boolean(values['drop-ack']),
     ackDelayMs: Number(values['ack-delay']),
     redeliver: Boolean(values.redeliver),
-    persistentSession: Boolean(values['persistent-session'])
+    persistentSession: Boolean(values['persistent-session']),
+    co2Spike: values['co2-spike'] === undefined ? null : values['co2-spike'].split(',').map((s) => s.trim()).filter(Boolean)
   }
 }
 
@@ -164,13 +173,22 @@ function runTelemetry(client: MqttClient, device: DeviceSpec, state: DeviceState
   let temperature = 20 + Math.random() * 3
   let co2 = 500 + Math.random() * 300
   const topic = `${opts.topicPrefix}/v1/devices/${device.id}/telemetry`
+  const startedAt = Date.now()
+  const profile: Co2Profile | null = opts.co2Spike === null ? null : opts.co2Spike.includes(device.id) ? 'spike' : 'calm'
 
   const publishOnce = () => {
     counter += 1
-    temperature = nextValue(temperature, 15, 30, 0.4)
-    // Effet physique de la ventilation (ADR 0014, preuve indépendante de
-    // l'ACK) : allumée, le CO2 baisse nettement ; éteinte, il remonte.
-    co2 = nextValue(co2 + (state.ventilation === 'on' ? -60 : 15), 400, 2500, 40)
+    if (profile !== null) {
+      // Scénario J5 : CO2 déterministe (co2Scenario.ts), température bornée
+      // loin des seuils 16/28 °C — seule l'alerte CO2 voulue doit s'ouvrir.
+      temperature = nextValue(temperature, 20, 24, 0.2)
+      co2 = co2At(profile, Date.now() - startedAt, Math.random() * 2 - 1)
+    } else {
+      temperature = nextValue(temperature, 15, 30, 0.4)
+      // Effet physique de la ventilation (ADR 0014, preuve indépendante de
+      // l'ACK) : allumée, le CO2 baisse nettement ; éteinte, il remonte.
+      co2 = nextValue(co2 + (state.ventilation === 'on' ? -60 : 15), 400, 2500, 40)
+    }
     const messageId = `${bootId}-${counter}`
     const payload = JSON.stringify(buildPayload(device, bootId, counter, temperature, co2))
 

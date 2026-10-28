@@ -139,7 +139,13 @@ export async function startIngester(): Promise<IngesterApplication> {
   await rawEvents.ensureIndexes(config.RAW_EVENTS_RETENTION_DAYS)
   const commands = new PrismaCommandRepository(prisma)
 
-  const clientId = `campify-ingester-${hostname()}`
+  // Identifiant STABLE d'une recréation du conteneur à l'autre : le hostname
+  // Docker change à chaque `up --build`, et chaque ancienne session
+  // persistante restait membre du groupe partagé — le broker lui attribuait
+  // sa part des messages, perdus (mesuré en J5 : 61 messages reçus sur 240
+  // avec 3 sessions orphelines, voir docs/J5.md). Le hostname ne sert plus
+  // que de repli hors Docker.
+  const clientId = config.MQTT_CLIENT_ID ?? `campify-ingester-${hostname()}`
   const mqttClient = mqtt.connect(config.MQTT_URL, { clientId, clean: false })
   const publisher = new MqttCommandPublisher(mqttClient, topics)
 
