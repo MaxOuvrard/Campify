@@ -7,6 +7,8 @@ import { useAppForeground } from '../hooks/useAppForeground'
 import { usePeriodicRefresh } from '../hooks/usePeriodicRefresh'
 import { alertLabel, formatDateTime, metricLabel } from '../utils/format'
 import { HistoryTarget } from '../store/appStore'
+import DeviceCommandPanel from '../components/DeviceCommandPanel'
+import { canSendCommands } from '../utils/jwt'
 import { colors } from '../theme/colors'
 
 interface RoomDetailScreenProps {
@@ -67,6 +69,9 @@ export default function RoomDetailScreen({ token, room, onBack, onScanDevice, on
   const hasData = useRef(false)
   const cacheKey = `room:${room.id}:measurements`
   const alertsCacheKey = `room:${room.id}:alerts`
+  // Confort d'affichage uniquement : un VIEWER ne voit pas les commandes
+  // (le backend refuserait de toute façon, RBAC → 403).
+  const showCommands = canSendCommands(token)
 
   const load = useCallback(
     async (isRefresh: boolean) => {
@@ -305,6 +310,7 @@ export default function RoomDetailScreen({ token, room, onBack, onScanDevice, on
                       )
                     })}
                   </View>
+                  {showCommands && <DeviceCommandPanel token={token} deviceId={group.deviceId} offline={isConnected === false} />}
                 </View>
               ))
             )}

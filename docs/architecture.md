@@ -38,7 +38,7 @@ backend/src/
 ├── driving/             # ce qui déclenche le domaine
 │   ├── mqtt/              # client mqtt.js (souscription partagée), schémas Zod, handlers
 │   ├── api/               # routes Fastify, auth JWT, RBAC
-│   └── worker/            # poller de consolidation (process séparé, voir ADR 0011)
+│   └── worker/            # pollers de consolidation et de timeout des commandes (process séparé, voir ADR 0011)
 │
 ├── composition.ts       # câblage : instancie adapters -> injecte dans les services
 ├── index.ts             # point d'entrée du process API (lecture base vérifiée + publish commandes)
@@ -62,15 +62,17 @@ pour le worker.
 
 ```mermaid
 flowchart LR
-    Device[Device IoT] -- mesures --> Broker[(Broker MQTT)]
-    Broker -- ack commandes --> Device
-    Broker <-. "$share/campify-ingesters/..." .-> MqttDriving["driving/mqtt (process ingester, 1..N instances)"]
+    Device[Device IoT] -- "mesures (telemetry)" --> Broker[(Broker MQTT)]
+    Device -- "ACK (commands/ack)" --> Broker
+    Broker -- "commande (commands)" --> Device
+    Broker <-. "$share/campify-ingesters/... (telemetry + commands/ack)" .-> MqttDriving["driving/mqtt (process ingester, 1..N instances)"]
     MqttDriving -- "record (message tel quel)" --> RawInfra[infra/mongo]
     RawInfra --> RawDB[(MongoDB - journal brut)]
+    MqttDriving -- "ACK → transition de la commande" --> Infra
 
-    WorkerDriving["driving/worker (process séparé, poll ~3s, curseur)"] -- "findAfter(curseur)" --> RawDB
+    WorkerDriving["driving/worker (process séparé : consolidation ~3s, timeout commandes ~2s)"] -- "findAfter(curseur)" --> RawDB
     WorkerDriving -- "dead-letter / checkpoint" --> RawDB
-    WorkerDriving -- consolidate --> Infra[infra/db - Prisma]
+    WorkerDriving -- "consolidate / TIMEOUT" --> Infra[infra/db - Prisma]
     Infra --> DB[(TimescaleDB - vérifiée)]
 
     Client[Client web/mobile] -- HTTP/JWT --> ApiDriving["driving/api (process API)"]
@@ -86,6 +88,65 @@ potentiellement plusieurs instances via souscription partagée, voir
 **worker** (consolidation, [ADR 0011](decisions/0011-worker-consolidation-polling.md)),
 **API** (HTTP, lecture base vérifiée uniquement + publication de
 commandes). Un pic de charge sur l'un ne ralentit jamais les deux autres.
+
+## Flux montants et descendants
+
+Deux sens de circulation, tous deux via MQTT, avec un préfixe configurable
+(`campus` par défaut). Les topics sont définis à un seul endroit,
+`shared/mqttTopics.ts` :
+
+| Sens | Topic | Émetteur → consommateur | QoS | Contrat |
+|---|---|---|---|---|
+| Montant | `{prefix}/v1/devices/{deviceId}/telemetry` | objet → ingester | 1 | réel (observé sur le kit), [ADR 0004](decisions/0004-contrat-mqtt-placeholder.md) |
+| Descendant | `{prefix}/v1/devices/{deviceId}/commands` | API → objet | 1 | défini par l'équipe, [ADR 0014](decisions/0014-cycle-de-vie-des-commandes.md) |
+| Montant | `{prefix}/v1/devices/{deviceId}/commands/ack` | objet → ingester | 1 | défini par l'équipe, [ADR 0014](decisions/0014-cycle-de-vie-des-commandes.md) |
+
+Dans tous les cas, le `deviceId` est lu **dans le topic**, et l'ACL du broker
+restreint chaque objet à ses propres topics (voir
+[Identité des devices](#identité-des-devices-et-sécurité-mqtt)).
+
+**Flux montant (mesures)** : objet → broker → ingester (journal brut
+MongoDB) → worker (consolidation) → base vérifiée → `GET` de l'API →
+mobile. Détail dans la section suivante.
+
+**Flux descendant (commande) puis montant (ACK)** :
+
+```mermaid
+sequenceDiagram
+    participant M as Mobile
+    participant A as API
+    participant DB as PostgreSQL (commands)
+    participant B as Broker MQTT
+    participant O as Objet
+    participant I as Ingester
+    participant W as Worker
+
+    M->>A: POST /devices/:id/commands (Idempotency-Key)
+    A->>DB: insert PENDING (command_id, expires_at)
+    A->>B: publish …/commands (QoS 1)
+    B-->>A: PUBACK
+    A->>DB: PENDING → SENT (FAILED si rien n'est parti)
+    A-->>M: 202 Accepted + command_id et état
+    B->>O: commande
+    O->>O: exécution (sauf doublon ou expires_at dépassé)
+    O->>B: publish …/commands/ack (même command_id, status, state)
+    B->>I: ACK
+    I->>DB: SENT → ACKNOWLEDGED / FAILED (ou lateAck si déjà TIMEOUT)
+    W->>DB: sans ACK après expires_at + grâce : → TIMEOUT
+    M->>A: GET /commands/:id (polling)
+    A-->>M: état courant (+ reportedState, lateAck)
+```
+
+Cycle de vie : `PENDING` → `SENT` → `ACKNOWLEDGED` | `FAILED` | `TIMEOUT`
+(états terminaux). L'ACK est corrélé par `command_id`, puis vérifié contre
+le `deviceId` du topic. Chaque transition est atomique
+(`UPDATE … WHERE status IN (…)`), car API, ingester et worker peuvent viser
+la même commande au même instant. Le mobile n'affiche une commande comme
+réussie qu'à réception de l'ACK. Contrat complet, timeouts (15 s + 5 s de
+grâce), ACK tardif et idempotence à trois niveaux :
+[ADR 0014](decisions/0014-cycle-de-vie-des-commandes.md). Un `command_id`
+se suit de bout en bout dans les logs via `npm run trace:command` ou le
+dashboard Grafana « Commandes (J4) ».
 
 ## Persistance des mesures : journal brut et base vérifiée
 

@@ -169,3 +169,74 @@ export async function associateDevice(token: string, roomId: string, identifier:
 
   return (await response.json()) as AssociatedDevice
 }
+
+// --- Commandes (J4, docs/decisions/0014-cycle-de-vie-des-commandes.md) ----
+
+/**
+ * Cycle de vie côté backend. SENT = le broker MQTT a la commande, PAS
+ * l'objet ; seul ACKNOWLEDGED signifie « exécutée par l'objet ». TIMEOUT
+ * = aucune réponse : l'état réel de l'objet est inconnu.
+ */
+export type CommandStatus = 'PENDING' | 'SENT' | 'ACKNOWLEDGED' | 'FAILED' | 'TIMEOUT'
+
+export interface Command {
+  id: string
+  deviceId: string
+  type: string
+  params: Record<string, unknown>
+  status: CommandStatus
+  createdAt: string
+  expiresAt: string
+  sentAt: string | null
+  ackedAt: string | null
+  timedOutAt: string | null
+  failureReason: string | null
+  reportedState: Record<string, unknown> | null
+  /** ACK reçu après le TIMEOUT : le statut reste TIMEOUT, mais ce que l'objet a fini par répondre est exposé. */
+  lateAck: { status: 'executed' | 'rejected' | 'expired'; at: string } | null
+}
+
+export interface CommandRequest {
+  type: string
+  params: Record<string, unknown>
+}
+
+/**
+ * Une seule tentative. `idempotencyKey` identifie l'intention de
+ * l'utilisateur : la réutiliser telle quelle pour un nouvel essai garantit
+ * qu'une requête arrivée au backend (mais dont la réponse s'est perdue) ne
+ * crée pas une seconde commande. Une erreur sans `status` = pas de réponse
+ * du serveur (réseau) : on ne sait pas si la demande est arrivée.
+ */
+export async function sendCommand(token: string, deviceId: string, request: CommandRequest, idempotencyKey: string): Promise<Command> {
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE_URL}/devices/${deviceId}/commands`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify(request)
+    })
+  } catch {
+    throw new ApiError('Impossible de joindre le serveur')
+  }
+
+  if (!response.ok) {
+    const message =
+      response.status === 401
+        ? 'Session expirée, reconnecte-toi'
+        : response.status === 403
+          ? "Tu n'as pas les droits pour piloter cet équipement"
+          : response.status === 404
+            ? 'Équipement inconnu'
+            : response.status === 400 || response.status === 409
+              ? 'Commande refusée par le serveur'
+              : 'Erreur serveur'
+    throw new ApiError(message, response.status)
+  }
+
+  return (await response.json()) as Command
+}
+
+export function fetchCommand(token: string, commandId: string): Promise<Command> {
+  return authorizedGet<Command>(`/commands/${commandId}`, token)
+}

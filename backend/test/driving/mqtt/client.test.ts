@@ -24,7 +24,7 @@ function buildDeps(logger: FakeLogger, qos?: 0 | 1) {
   const commands = new InMemoryCommandRepository()
   const publisher = new FakeMqttPublisher()
   const clock = new FixedClock(new Date('2024-01-01T00:00:00Z'))
-  const commandService = new CommandService(commands, devices, publisher, clock)
+  const commandService = new CommandService(commands, devices, publisher, clock, new FakeLogger())
   const topics = createMqttTopics('campus')
   return { topics, rawEvents, commandService, logger, qos }
 }
@@ -37,7 +37,7 @@ test('subscribes with the configured QoS and logs a connected status on connect'
   client.emit('connect', { sessionPresent: false })
 
   assert.equal(client.subscribeCalls.length, 1)
-  assert.deepEqual(client.subscribeCalls[0].topics, ['campus/v1/devices/+/telemetry', 'campus/devices/+/commands/ack'])
+  assert.deepEqual(client.subscribeCalls[0].topics, ['campus/v1/devices/+/telemetry', 'campus/v1/devices/+/commands/ack'])
   assert.deepEqual(client.subscribeCalls[0].opts, { qos: 1 })
   assert.ok(logger.entries.some((e) => e.level === 'info' && e.meta?.eventType === 'mqtt_connection' && e.meta?.status === 'connected'))
 })
@@ -51,7 +51,7 @@ test('wraps subscription filters in $share/<group>/ when a shared group is confi
 
   assert.deepEqual(client.subscribeCalls[0].topics, [
     '$share/campify-ingesters/campus/v1/devices/+/telemetry',
-    '$share/campify-ingesters/campus/devices/+/commands/ack'
+    '$share/campify-ingesters/campus/v1/devices/+/commands/ack'
   ])
 })
 

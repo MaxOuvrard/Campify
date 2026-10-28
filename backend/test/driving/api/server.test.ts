@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import * as assert from 'node:assert'
 import bcrypt from 'bcryptjs'
+import { randomUUID } from 'node:crypto'
 import { buildApiServer } from '../../../src/driving/api/server'
 import { CommandService } from '../../../src/domain/services/CommandService'
 import { DeviceAssociationService } from '../../../src/domain/services/deviceAssociation'
@@ -12,7 +13,7 @@ import {
   InMemoryUserRepository,
   InMemoryAlertRepository
 } from '../../fakes/inMemoryRepositories'
-import { FixedClock, FakeMqttPublisher } from '../../fakes/testDoubles'
+import { FixedClock, FakeLogger, FakeMqttPublisher } from '../../fakes/testDoubles'
 
 async function buildTestApp() {
   const rooms = new InMemoryRoomRepository()
@@ -23,7 +24,7 @@ async function buildTestApp() {
   const alerts = new InMemoryAlertRepository(devices)
   const publisher = new FakeMqttPublisher()
   const clock = new FixedClock(new Date('2024-01-01T00:00:00Z'))
-  const commandService = new CommandService(commands, devices, publisher, clock)
+  const commandService = new CommandService(commands, devices, publisher, clock, new FakeLogger())
   const deviceAssociationService = new DeviceAssociationService(devices, rooms)
 
   const room = await rooms.create('Salle Test')
@@ -53,6 +54,7 @@ async function buildTestApp() {
     alerts,
     commandService,
     commands,
+    logger: new FakeLogger(),
     deviceAssociationService,
     staleThresholdMs: 5 * 60 * 1000
   })
@@ -520,8 +522,8 @@ test('POST /devices/:id/commands is forbidden for a VIEWER', async (t) => {
   const response = await app.inject({
     method: 'POST',
     url: `/devices/${device.id}/commands`,
-    headers: authHeader(token),
-    payload: { type: 'reboot' }
+    headers: { ...authHeader(token), 'idempotency-key': randomUUID() },
+    payload: { type: 'set_ventilation', params: { on: true } }
   })
 
   assert.equal(response.statusCode, 403)
@@ -535,15 +537,106 @@ test('POST /devices/:id/commands dispatches a command for an ADMIN and publishes
   const response = await app.inject({
     method: 'POST',
     url: `/devices/${device.id}/commands`,
-    headers: authHeader(token),
-    payload: { type: 'reboot' }
+    headers: { ...authHeader(token), 'idempotency-key': randomUUID() },
+    payload: { type: 'set_ventilation', params: { on: true } }
   })
 
-  assert.equal(response.statusCode, 201)
+  // 202 : acceptée, exécution pas encore confirmée par l'objet.
+  assert.equal(response.statusCode, 202)
   const created = response.json() as { id: string; status: string }
   assert.equal(created.status, 'SENT')
   assert.equal(publisher.published.length, 1)
   assert.equal(publisher.published[0].deviceId, device.id)
+})
+
+test('POST /devices/:id/commands returns 400 for an unsupported command type and publishes nothing', async (t) => {
+  const { app, device, publisher } = await buildTestApp()
+  t.after(() => app.close())
+  const token = await loginAs(app, 'admin@test.local', 'admin-pass')
+
+  const response = await app.inject({
+    method: 'POST',
+    url: `/devices/${device.id}/commands`,
+    headers: { ...authHeader(token), 'idempotency-key': randomUUID() },
+    payload: { type: 'reboot' }
+  })
+
+  assert.equal(response.statusCode, 400)
+  assert.equal(publisher.published.length, 0)
+})
+
+test('POST /devices/:id/commands returns 400 for invalid params', async (t) => {
+  const { app, device, publisher } = await buildTestApp()
+  t.after(() => app.close())
+  const token = await loginAs(app, 'admin@test.local', 'admin-pass')
+
+  const response = await app.inject({
+    method: 'POST',
+    url: `/devices/${device.id}/commands`,
+    headers: { ...authHeader(token), 'idempotency-key': randomUUID() },
+    payload: { type: 'set_target_temperature', params: { value: 99 } }
+  })
+
+  assert.equal(response.statusCode, 400)
+  assert.equal(publisher.published.length, 0)
+})
+
+test('POST /devices/:id/commands returns 400 without an Idempotency-Key header', async (t) => {
+  const { app, device, publisher } = await buildTestApp()
+  t.after(() => app.close())
+  const token = await loginAs(app, 'admin@test.local', 'admin-pass')
+
+  const response = await app.inject({
+    method: 'POST',
+    url: `/devices/${device.id}/commands`,
+    headers: authHeader(token),
+    payload: { type: 'set_ventilation', params: { on: true } }
+  })
+
+  assert.equal(response.statusCode, 400)
+  assert.equal((response.json() as { error: string }).error, 'idempotency_key_required')
+  assert.equal(publisher.published.length, 0)
+})
+
+test('POST /devices/:id/commands replayed with the same Idempotency-Key returns the same command (200) without republishing', async (t) => {
+  const { app, device, publisher } = await buildTestApp()
+  t.after(() => app.close())
+  const token = await loginAs(app, 'admin@test.local', 'admin-pass')
+  const send = () =>
+    app.inject({
+      method: 'POST',
+      url: `/devices/${device.id}/commands`,
+      headers: { ...authHeader(token), 'idempotency-key': 'tap-42' },
+      payload: { type: 'set_ventilation', params: { on: true } }
+    })
+
+  const first = await send()
+  const second = await send()
+
+  assert.equal(first.statusCode, 202)
+  assert.equal(second.statusCode, 200)
+  assert.equal(second.headers['idempotent-replayed'], 'true')
+  assert.equal((second.json() as { id: string }).id, (first.json() as { id: string }).id)
+  assert.equal(publisher.published.length, 1)
+})
+
+test('POST /devices/:id/commands with a reused Idempotency-Key for another command returns 409', async (t) => {
+  const { app, device, publisher } = await buildTestApp()
+  t.after(() => app.close())
+  const token = await loginAs(app, 'admin@test.local', 'admin-pass')
+  const send = (on: boolean) =>
+    app.inject({
+      method: 'POST',
+      url: `/devices/${device.id}/commands`,
+      headers: { ...authHeader(token), 'idempotency-key': 'tap-42' },
+      payload: { type: 'set_ventilation', params: { on } }
+    })
+
+  await send(true)
+  const conflict = await send(false)
+
+  assert.equal(conflict.statusCode, 409)
+  assert.equal(publisher.published.length, 1)
 })
 
 test('POST /devices/:id/commands returns 404 for an unknown device', async (t) => {
@@ -554,8 +647,8 @@ test('POST /devices/:id/commands returns 404 for an unknown device', async (t) =
   const response = await app.inject({
     method: 'POST',
     url: '/devices/missing-device/commands',
-    headers: authHeader(token),
-    payload: { type: 'reboot' }
+    headers: { ...authHeader(token), 'idempotency-key': randomUUID() },
+    payload: { type: 'set_ventilation', params: { on: true } }
   })
 
   assert.equal(response.statusCode, 404)
@@ -578,8 +671,8 @@ test('GET /commands/:id returns the command once it has been dispatched', async 
   const dispatch = await app.inject({
     method: 'POST',
     url: `/devices/${device.id}/commands`,
-    headers: authHeader(adminToken),
-    payload: { type: 'reboot' }
+    headers: { ...authHeader(adminToken), 'idempotency-key': randomUUID() },
+    payload: { type: 'set_ventilation', params: { on: true } }
   })
   const commandId = (dispatch.json() as { id: string }).id
 

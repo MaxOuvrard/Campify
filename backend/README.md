@@ -35,7 +35,9 @@ optionnels** — depuis les ADR 0011/0012, `npm run dev` (l'API) ne touche
 plus du tout à MQTT ni au journal brut. Sans l'ingester, aucune mesure
 n'est même reçue ; sans le worker, ce que l'ingester écrit dans MongoDB
 n'est jamais décodé/dédupliqué/consolidé en base vérifiée — dans les deux cas,
-l'API renverrait toujours une liste vide. Avec `docker compose up -d
+l'API renverrait toujours une liste vide. Côté commandes (ADR 0014),
+sans l'ingester aucun ACK n'est reçu, et sans le worker aucune commande
+sans réponse ne passe jamais en `TIMEOUT`. Avec `docker compose up -d
 --build` (plus bas), les services `ingester` et `worker` démarrent
 automatiquement avec le reste — pas d'action manuelle dans ce cas.
 
@@ -84,6 +86,31 @@ l'ACL). Voir `npm run simulate:devices -- --help` pour les options
 (`--qos`, `--retain`, `--duplicate-rate`, `--interval`, `--devices`…).
 Interrompre avec Ctrl+C ; un `kill -9`/fermeture brutale du terminal
 simule un capteur qui s'arrête sans déconnexion propre.
+
+**Commandes (J4).** Chaque device simulé s'abonne aussi à ses commandes,
+les exécute (ventilation, consigne : la ventilation fait baisser le CO2
+publié) et renvoie un ACK avec le même `command_id` — contrat et cycle de
+vie : [ADR 0014](../docs/decisions/0014-cycle-de-vie-des-commandes.md).
+Options pour provoquer les anomalies J4 :
+
+| Option | Effet | Résultat attendu côté backend |
+|---|---|---|
+| *(simulateur arrêté)* | objet hors ligne | `SENT` → `TIMEOUT` (`no_ack`) |
+| `--command-mode silent` | reçoit, n'exécute pas, n'acquitte pas | `TIMEOUT` ; logs objet `status: ignored` |
+| `--drop-ack` | exécute mais n'envoie pas l'ACK | `TIMEOUT` alors que la ventilation est allumée (CO2 en baisse) |
+| `--ack-delay 25000` | ACK envoyé 25 s après | `TIMEOUT` puis `late_ack` (`lateAck` rempli) |
+| `--redeliver` | retraite chaque commande 1 s après | une seule exécution, même ACK renvoyé, `duplicate_ack` côté backend |
+| `--command-mode reject` | refuse toute commande | `FAILED` (`rejected_by_device`) |
+| `--persistent-session` | session MQTT persistante | après une coupure : livraison tardive → ACK `expired`, rien d'exécuté |
+
+Pour que les logs du simulateur arrivent dans Loki/Grafana (suivi d'un
+`commandId` de bout en bout), le lancer en conteneur plutôt qu'avec
+`npm run` :
+
+```bash
+docker compose --profile simulator up -d --build simulator     # mode normal, sensor-001
+docker compose run --rm simulator --devices sensor-001 --drop-ack
+```
 
 ### Alternative : tout via Docker Compose
 
@@ -141,7 +168,8 @@ fraîcheur de l'app (minutes).
 | `npm run prisma:migrate` | Applique les migrations en dev |
 | `npm run prisma:studio` | Interface d'exploration de la base |
 | `npm run prisma:seed` | Peuple les salles/devices de démo + l'utilisateur `demo@campify.local` |
-| `npm run simulate:devices` | Simule plusieurs devices MQTT en parallèle (scénarios J3), voir plus haut |
+| `npm run simulate:devices` | Simule plusieurs devices MQTT en parallèle (scénarios J3) et répond aux commandes (J4), voir plus haut |
+| `npm run trace:command -- <commandId>` | Reconstruit le parcours d'une commande depuis Loki + la base et indique l'étape en échec (J4) |
 
 ## Structure
 
@@ -170,11 +198,12 @@ npm test
   réelle : il est automatiquement ignoré si `DATABASE_URL` n'est pas
   définie.
 
-## ⚠️ Contrat MQTT — commandes encore provisoires
+## Contrat MQTT
 
 Le contrat de **télémétrie** (topics + payloads, `src/shared/mqttTopics.ts`,
 `src/driving/mqtt/schemas.ts`) est confirmé : observé sur le broker de
-démonstration. Le contrat de **commandes/acquittements** reste un
-**placeholder** non vérifié (aucune commande n'a encore été publiée vers
-le kit). Voir [ADR 0004](../docs/decisions/0004-contrat-mqtt-placeholder.md)
-pour le détail de ce qui reste à ajuster.
+démonstration. Le contrat de **commandes/ACK** (`{prefix}/v1/devices/{id}/commands`
+et `.../commands/ack`, payloads en `snake_case` avec `command_id`) est défini
+par l'équipe en J4 — voir [ADR 0014](../docs/decisions/0014-cycle-de-vie-des-commandes.md).
+Il n'a pas été vérifié contre le kit réel (aucune commande publiée vers le
+broker partagé), voir [ADR 0004](../docs/decisions/0004-contrat-mqtt-placeholder.md).

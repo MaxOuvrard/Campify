@@ -54,6 +54,9 @@ services:
       # JSON forcé quel que soit NODE_ENV : c'est ce que Promtail/Loki
       # savent parser — voir shared/logger.ts et observability/.
       LOG_FORMAT: json
+      # Champ `service` des logs : identifie le process dans une timeline
+      # de commande (ADR 0014).
+      SERVICE_NAME: campify-api
     ports:
       - '3000:3000'
     depends_on:
@@ -77,6 +80,7 @@ services:
       MQTT_URL: mqtt://backend:changeme-local-only@mosquitto:1883
       MQTT_SHARED_GROUP: campify-ingesters
       LOG_FORMAT: json
+      SERVICE_NAME: campify-ingester
     command: ['node', 'dist/ingester.js']
     depends_on:
       - postgres
@@ -100,11 +104,33 @@ services:
       DATABASE_URL: postgresql://campify:campify@postgres:5432/campify?schema=public
       MONGO_URL: mongodb://mongo:27017/campify_raw
       LOG_FORMAT: json
+      SERVICE_NAME: campify-worker
     command: ['node', 'dist/worker.js']
     depends_on:
       - postgres
       - mongo
       - backend
+
+  # Simulateur de devices (J3/J4, scripts/simulate-devices.ts) — derrière un
+  # profile : ne démarre PAS avec `docker compose up -d`. Tourne en conteneur
+  # pour que Promtail collecte ses logs JSON : c'est ce qui permet de suivre
+  # un commandId jusque DANS l'objet (réception, exécution, ACK) — voir
+  # docs/decisions/0014-cycle-de-vie-des-commandes.md. Options passées après
+  # le nom du service :
+  #   docker compose --profile simulator up -d simulator          (normal, sensor-001)
+  #   docker compose run --rm simulator --devices sensor-001 --drop-ack
+  simulator:
+    build: .
+    profiles: ['simulator']
+    environment:
+      MQTT_URL: mqtt://mosquitto:1883
+      # Mot de passe commun des identités sensor-00x générées en local
+      # (README, section Démarrage) — jamais celui d'un broker réel.
+      SIMULATOR_PASSWORD: changeme-local-only
+    entrypoint: ['npx', 'tsx', 'scripts/simulate-devices.ts']
+    command: ['--devices', 'sensor-001', '--qos', '1']
+    depends_on:
+      - mosquitto
 
   # Stack de centralisation/visualisation des logs (scénario J3). Un seul
   # `docker compose up -d` la démarre avec le reste — voir

@@ -1,0 +1,44 @@
+
+=== Parcours de la commande f22d10ba-9582-42ec-9492-35e7c92932bd (7 lignes de log) ===
+
+  07:17:36.518  campify-api       command request received                                   received  idempotencyKey=j4-dropack-1
+  07:17:36.530  campify-api       command accepted                                           PENDING  idempotencyKey=j4-dropack-1
+  07:17:36.535  device-simulator  command received                                           received
+  07:17:36.541  campify-api       command published                                          SENT  transitionApplied=true
+  07:17:36.544  device-simulator  command executed                                           executed  delivery=first
+  07:17:36.545  device-simulator  ack dropped (simulated loss)                               ack_dropped reason=simulated_ack_loss  ackStatus=executed delivery=first
+  07:17:58.025  campify-worker    command timed out                                          TIMEOUT reason=no_ack  previousStatus=SENT
+
+=== Étapes ===
+
+  [x] Demande reçue par l'API
+  [x] Commande persistée (PENDING)
+  [x] Publiée sur MQTT, confirmée par le broker (SENT)
+  [x] Reçue par l'objet
+  [x] Exécutée par l'objet
+  [ ] ACK émis par l'objet  → à la place : ack_dropped (perte simulée)
+  [ ] ACK reçu par le backend (ingester)
+  [ ] État mis à jour par l'ACK (ACKNOWLEDGED / FAILED)
+
+  Timeout déclaré par campify-worker à 07:17:58.025 (reason=no_ack)
+
+  → Chaîne interrompue à l'étape : « ACK émis par l'objet »
+
+=== État persisté (base vérifiée) ===
+
+  {
+    "status": "TIMEOUT",
+    "type": "set_ventilation",
+    "params": {
+      "on": true
+    },
+    "createdAt": "2026-10-08T07:17:36.525Z",
+    "expiresAt": "2026-10-08T07:17:51.523Z",
+    "sentAt": "2026-10-08T07:17:36.532Z",
+    "ackedAt": null,
+    "timedOutAt": "2026-10-08T07:17:58.015Z",
+    "failureReason": null,
+    "reportedState": null,
+    "lateAckStatus": null,
+    "lateAckAt": null
+  }

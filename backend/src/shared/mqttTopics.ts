@@ -2,8 +2,9 @@
  * Conventions de topics MQTT. Le topic de mesures (`measurementFilter`,
  * `parseDeviceIdFromMeasurementTopic`) reflète le contrat réel du kit,
  * observé sur le broker de démonstration (`campus/v1/devices/{deviceId}/telemetry`).
- * Le topic de commandes/acquittements reste un PLACEHOLDER non vérifié
- * (aucun kit n'a encore émis d'ack) : voir
+ * Les topics de commandes/acquittements sont définis par l'équipe (J4) et
+ * alignés sur la même convention `v1` — non vérifiés contre le kit réel :
+ * voir docs/decisions/0014-cycle-de-vie-des-commandes.md et
  * docs/decisions/0004-contrat-mqtt-placeholder.md.
  */
 export interface MqttTopics {
@@ -17,8 +18,8 @@ export interface MqttTopics {
 export function createMqttTopics(prefix: string): MqttTopics {
   return {
     measurementFilter: `${prefix}/v1/devices/+/telemetry`,
-    commandAckFilter: `${prefix}/devices/+/commands/ack`,
-    commandTopic: (deviceId: string) => `${prefix}/devices/${deviceId}/commands`,
+    commandAckFilter: `${prefix}/v1/devices/+/commands/ack`,
+    commandTopic: (deviceId: string) => `${prefix}/v1/devices/${deviceId}/commands`,
     parseDeviceIdFromMeasurementTopic: (topic: string) => extractSegmentAfter(topic, 'devices'),
     parseDeviceIdFromAckTopic: (topic: string) => extractSegmentAfter(topic, 'devices')
   }

@@ -31,6 +31,17 @@ const envSchema = z.object({
     .optional()
     .transform((v) => (v && v.length > 0 ? v : undefined)),
   JWT_SECRET: z.string(),
+  // Délai laissé à un objet pour exécuter une commande : sert de date
+  // d'expiration (`expires_at`) envoyée à l'objet — voir ADR 0014.
+  COMMAND_ACK_TIMEOUT_MS: z.coerce.number().default(15_000),
+  // Marge après `expires_at` avant de déclarer TIMEOUT (laisse à l'ACK d'une
+  // commande exécutée juste avant l'échéance le temps d'arriver), et
+  // fréquence du balayage des timeouts par le worker.
+  COMMAND_TIMEOUT_GRACE_MS: z.coerce.number().default(5_000),
+  COMMAND_TIMEOUT_SWEEP_INTERVAL_MS: z.coerce.number().default(2_000),
+  // Délai max d'attente du PUBACK du broker à la publication d'une commande
+  // (au-delà : publication « non confirmée », la commande reste PENDING).
+  COMMAND_PUBLISH_CONFIRM_TIMEOUT_MS: z.coerce.number().default(5_000),
   DEVICE_STALE_THRESHOLD_MS: z.coerce.number().default(5 * 60 * 1000),
   LOG_LEVEL: z.string().default('info'),
   // Worker de consolidation (ADR 0011, ADR 0013) : toutes les combien de temps

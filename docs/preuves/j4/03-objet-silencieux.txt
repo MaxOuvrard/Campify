@@ -1,0 +1,43 @@
+
+=== Parcours de la commande ab956222-152e-474a-a7fc-b9e355c7b16c (6 lignes de log) ===
+
+  07:17:35.922  campify-api       command request received                                   received  idempotencyKey=j4-silent-1
+  07:17:35.931  campify-api       command accepted                                           PENDING  idempotencyKey=j4-silent-1
+  07:17:35.934  device-simulator  command received                                           received
+  07:17:35.938  device-simulator  command received but ignored (silent mode)                 ignored reason=simulated_silent_device  delivery=first
+  07:17:35.940  campify-api       command published                                          SENT  transitionApplied=true
+  07:17:56.014  campify-worker    command timed out                                          TIMEOUT reason=no_ack  previousStatus=SENT
+
+=== Étapes ===
+
+  [x] Demande reçue par l'API
+  [x] Commande persistée (PENDING)
+  [x] Publiée sur MQTT, confirmée par le broker (SENT)
+  [x] Reçue par l'objet
+  [ ] Exécutée par l'objet  → à la place : ignored (simulated_silent_device)
+  [ ] ACK émis par l'objet
+  [ ] ACK reçu par le backend (ingester)
+  [ ] État mis à jour par l'ACK (ACKNOWLEDGED / FAILED)
+
+  Timeout déclaré par campify-worker à 07:17:56.014 (reason=no_ack)
+
+  → Chaîne interrompue à l'étape : « Exécutée par l'objet »
+
+=== État persisté (base vérifiée) ===
+
+  {
+    "status": "TIMEOUT",
+    "type": "set_ventilation",
+    "params": {
+      "on": true
+    },
+    "createdAt": "2026-10-08T07:17:35.927Z",
+    "expiresAt": "2026-10-08T07:17:50.925Z",
+    "sentAt": "2026-10-08T07:17:35.932Z",
+    "ackedAt": null,
+    "timedOutAt": "2026-10-08T07:17:55.997Z",
+    "failureReason": null,
+    "reportedState": null,
+    "lateAckStatus": null,
+    "lateAckAt": null
+  }

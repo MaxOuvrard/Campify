@@ -19,9 +19,11 @@ import { systemClock } from './domain/ports/Clock'
 import { MeasurementIngestionService } from './domain/services/MeasurementIngestionService'
 import { AlertService } from './domain/services/AlertService'
 import { CommandService } from './domain/services/CommandService'
+import { CommandTimeoutService } from './domain/services/CommandTimeoutService'
 import { DeviceAssociationService } from './domain/services/deviceAssociation'
 import { attachMqttSubscriptions } from './driving/mqtt/client'
 import { startConsolidationPolling } from './driving/worker/consolidationPoller'
+import { startCommandTimeoutPolling } from './driving/worker/commandTimeoutPoller'
 import { buildApiServer } from './driving/api/server'
 import type { AlertThreshold } from './domain/services/alerts'
 import type { PlausibilityRange } from './domain/services/plausibility'
@@ -74,9 +76,9 @@ export async function startApplication(): Promise<Application> {
   const alerts = new PrismaAlertRepository(prisma)
 
   const mqttClient = mqtt.connect(config.MQTT_URL)
-  const publisher = new MqttCommandPublisher(mqttClient, topics)
+  const publisher = new MqttCommandPublisher(mqttClient, topics, config.COMMAND_PUBLISH_CONFIRM_TIMEOUT_MS)
 
-  const commandService = new CommandService(commands, devices, publisher, systemClock)
+  const commandService = new CommandService(commands, devices, publisher, systemClock, logger, config.COMMAND_ACK_TIMEOUT_MS)
   const deviceAssociationService = new DeviceAssociationService(devices, rooms)
 
   const api = buildApiServer({
@@ -88,6 +90,7 @@ export async function startApplication(): Promise<Application> {
     alerts,
     commandService,
     commands,
+    logger,
     deviceAssociationService,
     staleThresholdMs: config.DEVICE_STALE_THRESHOLD_MS
   })
@@ -143,7 +146,7 @@ export async function startIngester(): Promise<IngesterApplication> {
   // `dispatch()` n'est jamais appelé depuis l'ingester (seul `acknowledge()`
   // l'est, câblé sur l'accusé MQTT) — le publisher est quand même requis
   // par le constructeur de CommandService.
-  const commandService = new CommandService(commands, devices, publisher, systemClock)
+  const commandService = new CommandService(commands, devices, publisher, systemClock, logger, config.COMMAND_ACK_TIMEOUT_MS)
 
   attachMqttSubscriptions(mqttClient, {
     topics,
@@ -184,6 +187,7 @@ export async function startWorker(): Promise<WorkerApplication> {
   const rawEvents = new MongoRawEventRepository(mongo.db)
   const checkpoints = new MongoConsolidationCheckpointRepository(mongo.db)
   const deadLetters = new MongoDeadLetterRepository(mongo.db)
+  const commands = new PrismaCommandRepository(prisma)
 
   const alerting = new AlertService(new PrismaAlertRepository(prisma), logger, alertThresholds)
   const ingestion = new MeasurementIngestionService(measurements, logger, alerting, plausibilityRanges)
@@ -201,8 +205,19 @@ export async function startWorker(): Promise<WorkerApplication> {
     settleMs: config.CONSOLIDATION_SETTLE_MS
   })
 
+  // Timeouts des commandes (ADR 0014) : dans le worker parce qu'il est en
+  // instance unique, sans client MQTT, et que l'état vit en base — un
+  // redémarrage ne perd aucune échéance.
+  const commandTimeouts = new CommandTimeoutService(commands, systemClock, logger, config.COMMAND_TIMEOUT_GRACE_MS)
+  const stopTimeoutPolling = startCommandTimeoutPolling({
+    timeouts: commandTimeouts,
+    logger,
+    intervalMs: config.COMMAND_TIMEOUT_SWEEP_INTERVAL_MS
+  })
+
   const stop = async (): Promise<void> => {
     stopPolling()
+    stopTimeoutPolling()
     await prisma.$disconnect()
     await mongo.client.close()
   }

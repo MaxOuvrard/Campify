@@ -11,9 +11,13 @@ import { Logger } from '../domain/ports/Logger'
 // `npm run dev` en local.
 const usePretty = process.env.LOG_FORMAT ? process.env.LOG_FORMAT !== 'json' : process.env.NODE_ENV !== 'production'
 
+// Nom de service par process (`campify-api`, `campify-ingester`,
+// `campify-worker`, fixés par docker-compose.yml) : les trois process
+// partagent ce logger, et sans ça une timeline de commande ne dirait pas
+// QUI a traité chaque étape (ADR 0014). `campify-backend` à défaut.
 export const pinoInstance = pino({
   level: process.env.LOG_LEVEL ?? 'info',
-  base: { service: 'campify-backend' },
+  base: { service: process.env.SERVICE_NAME ?? 'campify-backend' },
   transport: usePretty ? { target: 'pino-pretty' } : undefined
 })
 

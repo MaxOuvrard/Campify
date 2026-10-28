@@ -1,6 +1,8 @@
 import { Logger } from '../../domain/ports/Logger'
 import { RawEventRepository } from '../../domain/ports/RawEventRepository'
 import { CommandService } from '../../domain/services/CommandService'
+import { ForbiddenError, NotFoundError } from '../../shared/errors'
+import { MqttTopics } from '../../shared/mqttTopics'
 import { incomingCommandAckSchema } from './schemas'
 
 const MEASUREMENT_EVENT_TYPE = 'measurement_ingestion'
@@ -46,6 +48,7 @@ export function createMeasurementHandler(deps: MeasurementHandlerDeps) {
 }
 
 export interface CommandAckHandlerDeps {
+  topics: MqttTopics
   commandService: CommandService
   logger: Logger
 }
@@ -75,20 +78,56 @@ export function createCommandAckHandler(deps: CommandAckHandlerDeps) {
       return
     }
 
-    const acknowledgedAt = result.data.acknowledgedAt ? new Date(result.data.acknowledgedAt) : new Date()
+    const deviceId = deps.topics.parseDeviceIdFromAckTopic(topic)
+    if (deviceId === null) {
+      deps.logger.warn('mqtt command ack on a topic without device id', {
+        eventType: COMMAND_ACK_EVENT_TYPE,
+        topic,
+        commandId: result.data.command_id,
+        status: 'rejected',
+        reason: 'invalid_topic'
+      })
+      return
+    }
+
+    // Réception brute de l'ACK, AVANT le domaine : distingue « l'ACK n'est
+    // jamais arrivé » de « l'ACK est arrivé mais a été rejeté » (ADR 0014).
+    deps.logger.info('command ack received', {
+      eventType: COMMAND_ACK_EVENT_TYPE,
+      topic,
+      deviceId,
+      commandId: result.data.command_id,
+      ackStatus: result.data.status,
+      status: 'ack_received'
+    })
 
     try {
-      await deps.commandService.acknowledge(result.data.commandId, acknowledgedAt)
+      await deps.commandService.acknowledge({
+        commandId: result.data.command_id,
+        deviceId,
+        status: result.data.status,
+        reason: result.data.reason ?? null,
+        state: result.data.state ?? null,
+        ackedAt: new Date(result.data.acked_at)
+      })
     } catch (err) {
       deps.logger.warn('failed to acknowledge command', {
         eventType: COMMAND_ACK_EVENT_TYPE,
         topic,
-        commandId: result.data.commandId,
-        status: 'error',
-        reason: (err as Error).message
+        deviceId,
+        commandId: result.data.command_id,
+        status: 'rejected',
+        reason: ackFailureReason(err),
+        error: (err as Error).message
       })
     }
   }
+}
+
+function ackFailureReason(err: unknown): string {
+  if (err instanceof NotFoundError) return 'unknown_command'
+  if (err instanceof ForbiddenError) return 'device_mismatch'
+  return 'error'
 }
 
 function parseJson(payload: Buffer | string): unknown {
