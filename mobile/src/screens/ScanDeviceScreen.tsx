@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { ActivityIndicator, Linking, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { CameraView, useCameraPermissions } from 'expo-camera'
 import { ApiError, associateDevice, AssociatedDevice, Room } from '../api/client'
+import { colors } from '../theme/colors'
 
 interface ScanDeviceScreenProps {
   token: string
@@ -47,24 +48,30 @@ export default function ScanDeviceScreen({ token, room, onAssociated, onCancel }
       <View style={styles.container}>
         {outcome.kind === 'success' ? (
           <>
-            <Text style={styles.resultTitle}>Équipement associé</Text>
+            <Text style={styles.resultTitle} accessibilityRole="header">
+              Équipement associé
+            </Text>
             <Text style={styles.resultBody}>
               « {outcome.device.name} » est maintenant associé à la salle « {room.name} ».
             </Text>
-            <TouchableOpacity style={styles.primaryButton} onPress={() => onAssociated(outcome.device)}>
+            <TouchableOpacity style={styles.primaryButton} onPress={() => onAssociated(outcome.device)} accessibilityRole="button">
               <Text style={styles.primaryButtonText}>OK</Text>
             </TouchableOpacity>
           </>
         ) : (
           <>
-            <Text style={styles.resultTitle}>Association impossible</Text>
-            <Text style={[styles.resultBody, styles.error]}>{outcome.message}</Text>
-            <TouchableOpacity style={styles.primaryButton} onPress={retry}>
+            <Text style={styles.resultTitle} accessibilityRole="header">
+              Association impossible
+            </Text>
+            <Text style={[styles.resultBody, styles.error]} accessibilityRole="alert" accessibilityLiveRegion="polite">
+              {outcome.message}
+            </Text>
+            <TouchableOpacity style={styles.primaryButton} onPress={retry} accessibilityRole="button">
               <Text style={styles.primaryButtonText}>Réessayer</Text>
             </TouchableOpacity>
           </>
         )}
-        <TouchableOpacity onPress={onCancel}>
+        <TouchableOpacity onPress={onCancel} accessibilityRole="button">
           <Text style={styles.cancel}>Annuler</Text>
         </TouchableOpacity>
       </View>
@@ -82,14 +89,16 @@ export default function ScanDeviceScreen({ token, room, onAssociated, onCancel }
   if (!permission.granted) {
     return (
       <View style={styles.container}>
-        <Text style={styles.resultTitle}>Accès à la caméra requis</Text>
+        <Text style={styles.resultTitle} accessibilityRole="header">
+          Accès à la caméra requis
+        </Text>
         <Text style={styles.resultBody}>Campify a besoin de la caméra pour scanner le QR code d'un équipement.</Text>
         {permission.canAskAgain ? (
-          <TouchableOpacity style={styles.primaryButton} onPress={() => void requestPermission()}>
+          <TouchableOpacity style={styles.primaryButton} onPress={() => void requestPermission()} accessibilityRole="button">
             <Text style={styles.primaryButtonText}>Autoriser la caméra</Text>
           </TouchableOpacity>
         ) : (
-          <TouchableOpacity style={styles.primaryButton} onPress={() => void Linking.openSettings()}>
+          <TouchableOpacity style={styles.primaryButton} onPress={() => void Linking.openSettings()} accessibilityRole="button">
             <Text style={styles.primaryButtonText}>Ouvrir les réglages</Text>
           </TouchableOpacity>
         )}
@@ -99,7 +108,7 @@ export default function ScanDeviceScreen({ token, room, onAssociated, onCancel }
           onSubmit={() => void submit(manualCode)}
           disabled={submitting}
         />
-        <TouchableOpacity onPress={onCancel}>
+        <TouchableOpacity onPress={onCancel} accessibilityRole="button">
           <Text style={styles.cancel}>Annuler</Text>
         </TouchableOpacity>
       </View>
@@ -108,7 +117,9 @@ export default function ScanDeviceScreen({ token, room, onAssociated, onCancel }
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Scanner un équipement — {room.name}</Text>
+      <Text style={styles.title} accessibilityRole="header">
+        Scanner un équipement — {room.name}
+      </Text>
       <View style={styles.cameraFrame}>
         <CameraView
           style={StyleSheet.absoluteFill}
@@ -117,12 +128,12 @@ export default function ScanDeviceScreen({ token, room, onAssociated, onCancel }
         />
         {submitting && (
           <View style={styles.cameraOverlay}>
-            <ActivityIndicator size="large" color="#fff" />
+            <ActivityIndicator size="large" color={colors.onFilled} />
           </View>
         )}
       </View>
       <ManualEntry value={manualCode} onChangeText={setManualCode} onSubmit={() => void submit(manualCode)} disabled={submitting} />
-      <TouchableOpacity onPress={onCancel}>
+      <TouchableOpacity onPress={onCancel} accessibilityRole="button">
         <Text style={styles.cancel}>Annuler</Text>
       </TouchableOpacity>
     </View>
@@ -146,7 +157,9 @@ function ManualEntry({
       <View style={styles.manualRow}>
         <TextInput
           style={styles.manualInput}
+          accessibilityLabel="Code de l'équipement"
           placeholder="campus-device:v1:..."
+          placeholderTextColor={colors.textMuted}
           autoCapitalize="none"
           autoCorrect={false}
           value={value}
@@ -156,6 +169,8 @@ function ManualEntry({
           style={[styles.manualButton, (disabled || value.trim().length === 0) && styles.manualButtonDisabled]}
           onPress={onSubmit}
           disabled={disabled || value.trim().length === 0}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: disabled || value.trim().length === 0 }}
         >
           <Text style={styles.manualButtonText}>Valider</Text>
         </TouchableOpacity>
@@ -204,26 +219,26 @@ const styles = StyleSheet.create({
   },
   resultBody: {
     fontSize: 15,
-    color: '#444',
+    color: colors.textSecondary,
     textAlign: 'center',
     marginBottom: 24
   },
   error: {
-    color: '#c0392b'
+    color: colors.danger
   },
   primaryButton: {
-    backgroundColor: '#2563eb',
+    backgroundColor: colors.filledPrimary,
     borderRadius: 8,
     paddingVertical: 12,
     paddingHorizontal: 24,
     marginBottom: 16
   },
   primaryButtonText: {
-    color: '#fff',
+    color: colors.onFilled,
     fontWeight: '600'
   },
   cancel: {
-    color: '#888',
+    color: colors.textMuted,
     marginTop: 16
   },
   manualEntry: {
@@ -232,7 +247,7 @@ const styles = StyleSheet.create({
   },
   manualLabel: {
     fontSize: 13,
-    color: '#666',
+    color: colors.textSecondary,
     marginBottom: 8,
     textAlign: 'center'
   },
@@ -243,21 +258,23 @@ const styles = StyleSheet.create({
   manualInput: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: colors.border,
     borderRadius: 8,
     padding: 10
   },
   manualButton: {
-    backgroundColor: '#2563eb',
+    backgroundColor: colors.filledPrimary,
     borderRadius: 8,
     paddingHorizontal: 16,
     justifyContent: 'center'
   },
+  // Bouton inactif : exempté du contraste minimal par WCAG (1.4.3), son état
+  // est aussi annoncé au lecteur d'écran (`accessibilityState.disabled`).
   manualButtonDisabled: {
     backgroundColor: '#a5b4d8'
   },
   manualButtonText: {
-    color: '#fff',
+    color: colors.onFilled,
     fontWeight: '600'
   }
 })

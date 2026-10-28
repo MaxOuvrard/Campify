@@ -4,6 +4,7 @@ import { ApiError, fetchDeviceHistory, HistoryPoint } from '../api/client'
 import { readCache, writeCache } from '../storage/cache'
 import { formatDateTime, formatTime, metricLabel } from '../utils/format'
 import { HistoryTarget } from '../store/appStore'
+import { colors } from '../theme/colors'
 
 interface DeviceHistoryScreenProps {
   token: string
@@ -112,10 +113,12 @@ export default function DeviceHistoryScreen({ token, target, onBack }: DeviceHis
 
   return (
     <View style={styles.container}>
-      <TouchableOpacity onPress={onBack}>
+      <TouchableOpacity onPress={onBack} accessibilityRole="button" accessibilityLabel="Retour à la salle">
         <Text style={styles.back}>{'< Salle'}</Text>
       </TouchableOpacity>
-      <Text style={styles.title}>{metricLabel(target.type)}</Text>
+      <Text style={styles.title} accessibilityRole="header">
+        {metricLabel(target.type)}
+      </Text>
       <Text style={styles.subtitle}>{target.deviceName} — dernières 24h</Text>
 
       {loading ? (
@@ -124,8 +127,10 @@ export default function DeviceHistoryScreen({ token, target, onBack }: DeviceHis
         </View>
       ) : error ? (
         <View style={styles.center}>
-          <Text style={styles.error}>{error}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={() => void load()}>
+          <Text style={styles.error} accessibilityRole="alert" accessibilityLiveRegion="polite">
+            {error}
+          </Text>
+          <TouchableOpacity style={styles.retryButton} onPress={() => void load()} accessibilityRole="button">
             <Text style={styles.retryButtonText}>Réessayer</Text>
           </TouchableOpacity>
         </View>
@@ -176,7 +181,14 @@ function HistoryChart({ points, windowEnd }: { points: HistoryPoint[]; windowEnd
   return (
     <View style={styles.chartWrap}>
       <View style={styles.summaryRow}>
-        <TouchableOpacity onPress={() => setSelected(null)} disabled={selected === null} style={styles.summaryTouchable}>
+        <TouchableOpacity
+          onPress={() => setSelected(null)}
+          disabled={selected === null}
+          style={styles.summaryTouchable}
+          accessibilityRole={selected ? 'button' : 'text'}
+          accessibilityLabel={`${selected ? formatTime(selected.timestamp) : 'Dernière valeur'} : ${shown.value}${shown.unit ? ` ${shown.unit}` : ''}`}
+          accessibilityHint={selected ? 'Revient à la dernière valeur' : undefined}
+        >
           <Text style={styles.summaryLabel}>{selected ? formatTime(selected.timestamp) : 'Dernière valeur'}</Text>
           <Text style={styles.summaryValue}>
             {shown.value}
@@ -221,6 +233,9 @@ function HistoryChart({ points, windowEnd }: { points: HistoryPoint[]; windowEnd
                   activeOpacity={0.7}
                   hitSlop={{ left: 3, right: 3, top: 0, bottom: 0 }}
                   onPress={() => setSelected(point)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${formatTime(point.timestamp)} : ${point.value}${point.unit ? ` ${point.unit}` : ''}`}
+                  accessibilityState={{ selected: isSelected }}
                 >
                   <View style={[styles.bar, { height: barHeight }, isSelected && styles.barSelected]} />
                 </TouchableOpacity>
@@ -252,7 +267,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center'
   },
   back: {
-    color: '#2563eb',
+    color: colors.link,
     marginBottom: 8
   },
   title: {
@@ -261,36 +276,36 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 13,
-    color: '#666',
+    color: colors.textSecondary,
     marginBottom: 4
   },
   syncInfo: {
     fontSize: 12,
-    color: '#888',
+    color: colors.textMuted,
     marginBottom: 16
   },
   empty: {
-    color: '#666',
+    color: colors.textSecondary,
     textAlign: 'center',
     marginTop: 24
   },
   error: {
-    color: '#c0392b',
+    color: colors.danger,
     marginBottom: 12,
     textAlign: 'center'
   },
   retryButton: {
-    backgroundColor: '#2563eb',
+    backgroundColor: colors.filledPrimary,
     borderRadius: 8,
     paddingVertical: 10,
     paddingHorizontal: 20
   },
   retryButtonText: {
-    color: '#fff',
+    color: colors.onFilled,
     fontWeight: '600'
   },
   chartWrap: {
-    backgroundColor: '#f4f6f8',
+    backgroundColor: colors.surface,
     borderRadius: 12,
     padding: 16
   },
@@ -305,15 +320,15 @@ const styles = StyleSheet.create({
   },
   summaryLabel: {
     fontSize: 12,
-    color: '#888'
+    color: colors.textMuted
   },
   summaryValue: {
     fontSize: 28,
     fontWeight: '700'
   },
   summaryHint: {
-    fontSize: 11,
-    color: '#2563eb',
+    fontSize: 12,
+    color: colors.link,
     marginTop: 2
   },
   summaryMinMax: {
@@ -321,7 +336,7 @@ const styles = StyleSheet.create({
   },
   summaryMinMaxText: {
     fontSize: 12,
-    color: '#888'
+    color: colors.textMuted
   },
   chartRow: {
     flexDirection: 'row'
@@ -334,9 +349,9 @@ const styles = StyleSheet.create({
   yAxisLabel: {
     position: 'absolute',
     right: 8,
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
-    color: '#666'
+    color: colors.textSecondary
   },
   chartScroll: {
     // Marge pour que les repères d'heure du tout premier et du tout dernier
@@ -355,14 +370,14 @@ const styles = StyleSheet.create({
     top: 0,
     width: 1,
     height: CHART_HEIGHT,
-    backgroundColor: '#e2e5e9'
+    backgroundColor: colors.divider
   },
   hGridLine: {
     position: 'absolute',
     left: 0,
     right: 0,
     height: 1,
-    backgroundColor: '#e2e5e9'
+    backgroundColor: colors.divider
   },
   barTouchable: {
     position: 'absolute',
@@ -373,24 +388,24 @@ const styles = StyleSheet.create({
   },
   bar: {
     width: BAR_WIDTH,
-    backgroundColor: '#2563eb',
+    backgroundColor: colors.filledPrimary,
     borderTopLeftRadius: 2,
     borderTopRightRadius: 2
   },
   barSelected: {
-    backgroundColor: '#c0392b'
+    backgroundColor: colors.filledDanger
   },
   tickLabel: {
     position: 'absolute',
     top: CHART_HEIGHT + 4,
     width: 50,
-    fontSize: 10,
-    color: '#888',
+    fontSize: 12,
+    color: colors.textMuted,
     textAlign: 'center'
   },
   hint: {
-    fontSize: 11,
-    color: '#aaa',
+    fontSize: 12,
+    color: colors.textMuted,
     marginTop: 8,
     textAlign: 'center'
   }

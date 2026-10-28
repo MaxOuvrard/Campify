@@ -7,6 +7,7 @@ import { useAppForeground } from '../hooks/useAppForeground'
 import { usePeriodicRefresh } from '../hooks/usePeriodicRefresh'
 import { alertLabel, formatDateTime, metricLabel } from '../utils/format'
 import { HistoryTarget } from '../store/appStore'
+import { colors } from '../theme/colors'
 
 interface RoomDetailScreenProps {
   token: string
@@ -148,14 +149,16 @@ export default function RoomDetailScreen({ token, room, onBack, onScanDevice, on
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={onBack}>
+        <TouchableOpacity onPress={onBack} accessibilityRole="button" accessibilityLabel="Retour aux salles">
           <Text style={styles.back}>{'< Salles'}</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={onScanDevice}>
+        <TouchableOpacity onPress={onScanDevice} accessibilityRole="button">
           <Text style={styles.scanLink}>Scanner un équipement</Text>
         </TouchableOpacity>
       </View>
-      <Text style={styles.title}>{room.name}</Text>
+      <Text style={styles.title} accessibilityRole="header">
+        {room.name}
+      </Text>
 
       {loading ? (
         <View style={styles.center}>
@@ -163,8 +166,10 @@ export default function RoomDetailScreen({ token, room, onBack, onScanDevice, on
         </View>
       ) : error ? (
         <View style={styles.center}>
-          <Text style={styles.error}>{error}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={() => void load(false)}>
+          <Text style={styles.error} accessibilityRole="alert" accessibilityLiveRegion="polite">
+            {error}
+          </Text>
+          <TouchableOpacity style={styles.retryButton} onPress={() => void load(false)} accessibilityRole="button">
             <Text style={styles.retryButtonText}>Réessayer</Text>
           </TouchableOpacity>
         </View>
@@ -172,7 +177,7 @@ export default function RoomDetailScreen({ token, room, onBack, onScanDevice, on
         <>
           {dataAsOf && <Text style={styles.syncInfo}>Données du {formatDateTime(dataAsOf)}</Text>}
           {isConnected === false && (
-            <View style={styles.banner}>
+            <View style={styles.banner} accessible accessibilityRole="alert" accessibilityLiveRegion="polite">
               <Text style={styles.bannerText}>Téléphone hors ligne — affichage des dernières données reçues</Text>
             </View>
           )}
@@ -181,7 +186,7 @@ export default function RoomDetailScreen({ token, room, onBack, onScanDevice, on
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} />}
           >
             {alertsUnavailable && (
-              <View style={styles.banner}>
+              <View style={styles.banner} accessible accessibilityRole="alert" accessibilityLiveRegion="polite">
                 <Text style={styles.bannerText}>
                   {alerts !== null && alertsAsOf
                     ? `Alertes indisponibles — dernière liste connue du ${formatDateTime(alertsAsOf)}`
@@ -192,11 +197,23 @@ export default function RoomDetailScreen({ token, room, onBack, onScanDevice, on
 
             {openAlerts.length > 0 && (
               <View style={styles.alertSection}>
-                <Text style={styles.sectionTitle}>Alertes en cours</Text>
+                <Text style={styles.sectionTitle} accessibilityRole="header">
+                  Alertes en cours
+                </Text>
                 {openAlerts.map((alert) => {
                   const measurement = measurementByKey.get(metricKey(alert.deviceId, alert.measurementType))
                   return (
-                    <View key={alert.id} style={styles.alertCard}>
+                    <View
+                      key={alert.id}
+                      style={styles.alertCard}
+                      accessible
+                      accessibilityLabel={[
+                        `Alerte : ${alertLabel(alert.measurementType, alert.reason)}, ${alert.deviceName}`,
+                        `${alert.lastValue}${unitOf(alert)}, seuil ${alert.threshold}${unitOf(alert)}`,
+                        `en cours depuis le ${formatDateTime(alert.openedAt)}`,
+                        ...(measurement && !measurement.fresh ? ['capteur silencieux, état actuel inconnu'] : [])
+                      ].join(', ')}
+                    >
                       <Text style={styles.alertTitle}>
                         ⚠ {alertLabel(alert.measurementType, alert.reason)} · {alert.deviceName}
                       </Text>
@@ -217,7 +234,12 @@ export default function RoomDetailScreen({ token, room, onBack, onScanDevice, on
 
             {resolvedAlerts.length > 0 && (
               <View style={styles.resolvedSection}>
-                <TouchableOpacity onPress={() => setShowResolved((v) => !v)}>
+                <TouchableOpacity
+                  onPress={() => setShowResolved((v) => !v)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Revenues à la normale sur 24 heures : ${resolvedAlerts.length}`}
+                  accessibilityState={{ expanded: showResolved }}
+                >
                   <Text style={styles.resolvedToggle}>
                     {showResolved ? '▾' : '▸'} Revenues à la normale (24h) : {resolvedAlerts.length}
                   </Text>
@@ -254,6 +276,13 @@ export default function RoomDetailScreen({ token, room, onBack, onScanDevice, on
                           onPress={() =>
                             onOpenHistory({ deviceId: group.deviceId, deviceName: group.deviceName, type: measurement.type })
                           }
+                          accessibilityRole="button"
+                          accessibilityLabel={[
+                            `${metricLabel(measurement.type)} ${measurement.value}${measurement.unit ? ` ${measurement.unit}` : ''}`,
+                            ...(inAlert ? ['en alerte'] : []),
+                            ...(!measurement.fresh ? ['capteur silencieux'] : [])
+                          ].join(', ')}
+                          accessibilityHint="Ouvre l'historique de cette mesure"
                         >
                           <View style={styles.cardHeader}>
                             <Text style={styles.metricLabel}>{metricLabel(measurement.type)}</Text>
@@ -305,10 +334,10 @@ const styles = StyleSheet.create({
     marginBottom: 8
   },
   back: {
-    color: '#2563eb'
+    color: colors.link
   },
   scanLink: {
-    color: '#2563eb',
+    color: colors.link,
     fontWeight: '600'
   },
   title: {
@@ -318,17 +347,17 @@ const styles = StyleSheet.create({
   },
   syncInfo: {
     fontSize: 12,
-    color: '#888',
+    color: colors.textMuted,
     marginBottom: 12
   },
   banner: {
-    backgroundColor: '#fef3c7',
+    backgroundColor: colors.warningSurface,
     borderRadius: 8,
     padding: 10,
     marginBottom: 12
   },
   bannerText: {
-    color: '#92400e',
+    color: colors.warning,
     fontSize: 13,
     textAlign: 'center'
   },
@@ -341,13 +370,13 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#991b1b',
+    color: colors.dangerStrong,
     marginBottom: 8
   },
   alertCard: {
-    backgroundColor: '#fef2f2',
+    backgroundColor: colors.dangerSurface,
     borderLeftWidth: 4,
-    borderLeftColor: '#b91c1c',
+    borderLeftColor: colors.filledAlert,
     borderRadius: 8,
     padding: 12,
     marginBottom: 8
@@ -355,22 +384,22 @@ const styles = StyleSheet.create({
   alertTitle: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#991b1b'
+    color: colors.dangerStrong
   },
   alertValue: {
     fontSize: 15,
-    color: '#1f2937',
+    color: colors.text,
     marginTop: 4
   },
   alertDate: {
     fontSize: 13,
-    color: '#4b5563',
+    color: colors.textSecondary,
     marginTop: 2
   },
   alertStale: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#92400e',
+    color: colors.warning,
     marginTop: 4
   },
   resolvedSection: {
@@ -379,15 +408,15 @@ const styles = StyleSheet.create({
   resolvedToggle: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#166534'
+    color: colors.success
   },
   resolvedItem: {
     fontSize: 13,
-    color: '#374151',
+    color: colors.textSecondary,
     marginTop: 6
   },
   card: {
-    backgroundColor: '#f4f6f8',
+    backgroundColor: colors.surface,
     borderRadius: 12,
     padding: 16,
     marginBottom: 12
@@ -395,7 +424,7 @@ const styles = StyleSheet.create({
   deviceName: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#333',
+    color: colors.text,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 12
@@ -410,16 +439,21 @@ const styles = StyleSheet.create({
   },
   metricColumnDivider: {
     borderLeftWidth: 1,
-    borderLeftColor: '#e2e5e9',
+    borderLeftColor: colors.divider,
     paddingLeft: 16,
     marginLeft: 16
   },
+  // Fond teinté plutôt qu'une opacité réduite, qui faisait tomber le
+  // contraste de tout le texte de la colonne sous 4.5:1 ; le badge
+  // « Capteur silencieux » porte l'information en toutes lettres.
   metricColumnStale: {
-    opacity: 0.75
+    backgroundColor: colors.staleSurface,
+    borderRadius: 8,
+    padding: 8
   },
   metricColumnAlert: {
     borderWidth: 2,
-    borderColor: '#b91c1c',
+    borderColor: colors.filledAlert,
     borderRadius: 8,
     padding: 8
   },
@@ -430,15 +464,15 @@ const styles = StyleSheet.create({
   },
   metricLabel: {
     fontSize: 14,
-    color: '#555'
+    color: colors.textSecondary
   },
   inAlertText: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#991b1b'
+    color: colors.dangerStrong
   },
   staleBadge: {
-    backgroundColor: '#c0392b',
+    backgroundColor: colors.filledDanger,
     borderRadius: 6,
     paddingVertical: 2,
     paddingHorizontal: 8,
@@ -446,8 +480,8 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start'
   },
   staleBadgeText: {
-    color: '#fff',
-    fontSize: 11,
+    color: colors.onFilled,
+    fontSize: 12,
     fontWeight: '600'
   },
   metricValue: {
@@ -457,31 +491,31 @@ const styles = StyleSheet.create({
   },
   metricDate: {
     fontSize: 12,
-    color: '#888'
+    color: colors.textMuted
   },
   historyHint: {
-    fontSize: 11,
-    color: '#2563eb',
+    fontSize: 12,
+    color: colors.link,
     marginTop: 6
   },
   empty: {
-    color: '#666',
+    color: colors.textSecondary,
     textAlign: 'center',
     marginTop: 24
   },
   error: {
-    color: '#c0392b',
+    color: colors.danger,
     marginBottom: 12,
     textAlign: 'center'
   },
   retryButton: {
-    backgroundColor: '#2563eb',
+    backgroundColor: colors.filledPrimary,
     borderRadius: 8,
     paddingVertical: 10,
     paddingHorizontal: 20
   },
   retryButtonText: {
-    color: '#fff',
+    color: colors.onFilled,
     fontWeight: '600'
   }
 })

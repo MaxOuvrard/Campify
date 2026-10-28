@@ -6,6 +6,7 @@ import { useNetworkStatus } from '../hooks/useNetworkStatus'
 import { useAppForeground } from '../hooks/useAppForeground'
 import { usePeriodicRefresh } from '../hooks/usePeriodicRefresh'
 import { formatDateTime, openAlertCountLabel } from '../utils/format'
+import { colors } from '../theme/colors'
 
 interface RoomListScreenProps {
   token: string
@@ -16,6 +17,15 @@ const CACHE_KEY = 'rooms'
 
 // Salles en alerte d'abord (les plus touchées en tête), puis ordre
 // alphabétique : avec plusieurs salles, le problème se voit sans défiler.
+// Une ligne est lue d'un seul tenant par le lecteur d'écran : tout ce que
+// montrent les badges doit donc aussi être dans le libellé.
+export function roomAccessibilityLabel(room: Room): string {
+  const parts = [room.name]
+  if (room.openAlertCount > 0) parts.push(openAlertCountLabel(room.openAlertCount))
+  if (room.hasSilentDevice) parts.push('capteur silencieux')
+  return parts.join(', ')
+}
+
 export function sortRooms(rooms: Room[]): Room[] {
   return [...rooms].sort((a, b) => (b.openAlertCount ?? 0) - (a.openAlertCount ?? 0) || a.name.localeCompare(b.name))
 }
@@ -90,8 +100,10 @@ export default function RoomListScreen({ token, onSelectRoom }: RoomListScreenPr
   if (error) {
     return (
       <View style={styles.center}>
-        <Text style={styles.error}>{error}</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={() => void load()}>
+        <Text style={styles.error} accessibilityRole="alert" accessibilityLiveRegion="polite">
+          {error}
+        </Text>
+        <TouchableOpacity style={styles.retryButton} onPress={() => void load()} accessibilityRole="button">
           <Text style={styles.retryButtonText}>Réessayer</Text>
         </TouchableOpacity>
       </View>
@@ -100,10 +112,12 @@ export default function RoomListScreen({ token, onSelectRoom }: RoomListScreenPr
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Salles</Text>
+      <Text style={styles.title} accessibilityRole="header">
+        Salles
+      </Text>
       {dataAsOf && <Text style={styles.syncInfo}>Données du {formatDateTime(dataAsOf)}</Text>}
       {isConnected === false && (
-        <View style={styles.banner}>
+        <View style={styles.banner} accessible accessibilityRole="alert" accessibilityLiveRegion="polite">
           <Text style={styles.bannerText}>Téléphone hors ligne — affichage des dernières données reçues</Text>
         </View>
       )}
@@ -112,7 +126,13 @@ export default function RoomListScreen({ token, onSelectRoom }: RoomListScreenPr
         keyExtractor={(room) => room.id}
         ListEmptyComponent={<Text style={styles.empty}>Aucune salle enregistrée.</Text>}
         renderItem={({ item }) => (
-          <TouchableOpacity style={styles.row} onPress={() => onSelectRoom(item)}>
+          <TouchableOpacity
+            style={styles.row}
+            onPress={() => onSelectRoom(item)}
+            accessibilityRole="button"
+            accessibilityLabel={roomAccessibilityLabel(item)}
+            accessibilityHint="Ouvre le détail de la salle"
+          >
             <Text style={styles.roomName}>{item.name}</Text>
             <View style={styles.badges}>
               {item.openAlertCount > 0 && (
@@ -153,17 +173,17 @@ const styles = StyleSheet.create({
   },
   syncInfo: {
     fontSize: 12,
-    color: '#888',
+    color: colors.textMuted,
     marginBottom: 12
   },
   banner: {
-    backgroundColor: '#fef3c7',
+    backgroundColor: colors.warningSurface,
     borderRadius: 8,
     padding: 10,
     marginBottom: 12
   },
   bannerText: {
-    color: '#92400e',
+    color: colors.warning,
     fontSize: 13,
     textAlign: 'center'
   },
@@ -173,7 +193,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee'
+    borderBottomColor: colors.separator
   },
   roomName: {
     fontSize: 17
@@ -183,45 +203,45 @@ const styles = StyleSheet.create({
     gap: 4
   },
   alertBadge: {
-    backgroundColor: '#b91c1c',
+    backgroundColor: colors.filledAlert,
     borderRadius: 6,
     paddingVertical: 2,
     paddingHorizontal: 8
   },
   alertBadgeText: {
-    color: '#fff',
+    color: colors.onFilled,
     fontSize: 12,
     fontWeight: '700'
   },
   silentBadge: {
-    backgroundColor: '#fdf2f2',
+    backgroundColor: colors.silentSurface,
     borderRadius: 6,
     paddingVertical: 2,
     paddingHorizontal: 8
   },
   silentBadgeText: {
-    color: '#c0392b',
+    color: colors.danger,
     fontSize: 12,
     fontWeight: '600'
   },
   empty: {
-    color: '#666',
+    color: colors.textSecondary,
     textAlign: 'center',
     marginTop: 24
   },
   error: {
-    color: '#c0392b',
+    color: colors.danger,
     marginBottom: 12,
     textAlign: 'center'
   },
   retryButton: {
-    backgroundColor: '#2563eb',
+    backgroundColor: colors.filledPrimary,
     borderRadius: 8,
     paddingVertical: 10,
     paddingHorizontal: 20
   },
   retryButtonText: {
-    color: '#fff',
+    color: colors.onFilled,
     fontWeight: '600'
   }
 })

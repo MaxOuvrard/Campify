@@ -292,6 +292,18 @@ qui se tait n'implique pas que le téléphone soit déconnecté, et
 inversement. Détail et justification :
 [ADR 0006](decisions/0006-cache-mobile-et-affichage-de-la-fraicheur.md).
 
+## Lisibilité et accessibilité (mobile)
+
+Toutes les couleurs de texte viennent d'une palette unique
+(`mobile/src/theme/colors.ts`). Un test (`src/theme/__tests__/colors.test.ts`)
+vérifie que chaque couleur de texte atteint le contraste WCAG AA (4.5:1) sur
+chaque fond, et qu'aucun écran n'utilise de couleur de texte en dur. Texte
+de 12 px minimum ; information jamais portée par la couleur seule (badge
+texte « En alerte », « Capteur silencieux »). Éléments actionnables avec
+`accessibilityRole`/`accessibilityLabel`, erreurs et bandeaux avec le rôle
+`alert` (annoncés à leur apparition). Détail et ratios avant/après :
+[docs/preuves/accessibilite-mobile.md](preuves/accessibilite-mobile.md).
+
 ## Choix techniques
 
 | Domaine | Choix | Notes |
