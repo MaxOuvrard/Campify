@@ -7,7 +7,7 @@ import { AlertThreshold, decideAlertTransition } from './alerts'
 const EVENT_TYPE = 'alert'
 
 /**
- * Applique la règle d'alerte (domain/services/alerts.ts, ADR 0014) à une
+ * Applique la règle d'alerte (domain/services/alerts.ts, ADR 0015) à une
  * mesure déjà acceptée par la consolidation — doublons et retards ont été
  * rejetés avant, une mesure ancienne ne peut donc ni ouvrir ni fermer une
  * alerte. Ne journalise que les transitions (`opened`, `resolved`), jamais

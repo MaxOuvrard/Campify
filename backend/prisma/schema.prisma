@@ -105,7 +105,7 @@ model Command {
 }
 
 // Incident de seuil (device, type de mesure) avec cycle de vie : ouvert puis
-// résolu — voir domain/services/alerts.ts et ADR 0014. Au plus une alerte
+// résolu — voir domain/services/alerts.ts et ADR 0015. Au plus une alerte
 // ouverte par couple : `openKey` vaut "deviceId:type" tant que l'alerte est
 // ouverte, NULL une fois résolue. PostgreSQL accepte plusieurs NULL dans une
 // colonne unique, ce qui équivaut à un index unique partiel

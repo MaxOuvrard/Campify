@@ -1,5 +1,6 @@
 import { filled, onFilled, surfaces, textColors } from '../colors'
 import { contrastRatio, WCAG_AA_NORMAL_TEXT } from '../contrast'
+import { TONE_COLORS } from '../../components/DeviceCommandPanel'
 
 describe('contrastRatio', () => {
   it('calcule les valeurs de référence WCAG', () => {
@@ -18,7 +19,10 @@ describe('palette — contraste WCAG AA (≥ 4.5:1)', () => {
     Object.entries(filled).map(([fill, bg]) => [text, fill, fg, bg] as const)
   )
 
-  it.each([...textOnSurfaces, ...onFilledBackgrounds])('%s sur %s', (_text, _bg, fg, bg) => {
+  // Statuts de commande (DeviceCommandPanel) : chaque teinte a son propre fond.
+  const commandTones = Object.entries(TONE_COLORS).map(([tone, { text, background }]) => [`statut ${tone}`, 'son fond', text, background] as const)
+
+  it.each([...textOnSurfaces, ...onFilledBackgrounds, ...commandTones])('%s sur %s', (_text, _bg, fg, bg) => {
     expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(WCAG_AA_NORMAL_TEXT)
   })
 })
@@ -28,12 +32,12 @@ declare const __dirname: string
 const fs = jest.requireActual<{ readdirSync(dir: string): string[]; readFileSync(file: string, encoding: 'utf8'): string }>('fs')
 const path = jest.requireActual<{ join(...parts: string[]): string }>('path')
 
-describe('écrans — aucune couleur de texte hors palette', () => {
-  const screensDir = path.join(__dirname, '..', '..', 'screens')
-  const screens = fs.readdirSync(screensDir).filter((f: string) => f.endsWith('.tsx'))
+describe('écrans et composants — aucune couleur de texte hors palette', () => {
+  const dirs = ['screens', 'components'].map((dir) => path.join(__dirname, '..', '..', dir))
+  const files = dirs.flatMap((dir) => fs.readdirSync(dir).filter((f: string) => f.endsWith('.tsx')).map((f: string) => path.join(dir, f)))
 
-  it.each(screens)('%s', (file: string) => {
-    const source = fs.readFileSync(path.join(screensDir, file), 'utf8')
+  it.each(files)('%s', (file: string) => {
+    const source = fs.readFileSync(file, 'utf8')
     // `color: '#…'` (texte) ou `color="#…"` (prop) : doivent passer par `colors.*`,
     // sinon la couleur échappe au contrôle de contraste ci-dessus.
     const hardcoded = source.match(/(?<![A-Za-z])color(?::\s*|=)['"]#[0-9a-fA-F]{3,8}['"]/g) ?? []

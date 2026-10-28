@@ -41,7 +41,7 @@ function hasRecovered(value: number, open: Alert, threshold: AlertThreshold): bo
 
 /**
  * Décide ce qu'une mesure acceptée change à l'alerte de son couple
- * (device, type) — voir ADR 0014. Fonction pure : l'état courant (`open`)
+ * (device, type) — voir ADR 0015. Fonction pure : l'état courant (`open`)
  * est fourni par l'appelant, la décision ne dépend que de lui et de la
  * valeur.
  *

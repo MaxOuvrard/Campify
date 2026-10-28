@@ -87,7 +87,7 @@ export default async function roomRoutes(fastify: FastifyInstance, deps: RoomRou
     return perDevice.flat().sort((a, b) => a.type.localeCompare(b.type))
   })
 
-  // Alertes de la salle (ADR 0014) : en cours par défaut — au plus une par
+  // Alertes de la salle (ADR 0015) : en cours par défaut — au plus une par
   // device+type, donc bornées par construction —, ou historique avec
   // `status=all`, borné comme celui des mesures (domain/services/history.ts).
   fastify.get('/rooms/:id/alerts', { preHandler: fastify.authenticate }, async (request, reply) => {

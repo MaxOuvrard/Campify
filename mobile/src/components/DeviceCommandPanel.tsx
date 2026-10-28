@@ -1,6 +1,8 @@
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useDeviceCommand } from '../hooks/useDeviceCommand'
 import { CommandTone, describeCommand } from '../utils/commandStatus'
+// Alias : `colors` est déjà le nom local de la teinte du statut affiché.
+import { colors as palette } from '../theme/colors'
 
 interface DeviceCommandPanelProps {
   token: string
@@ -9,7 +11,8 @@ interface DeviceCommandPanelProps {
   offline: boolean
 }
 
-const TONE_COLORS: Record<CommandTone, { background: string; text: string }> = {
+// Couples fond/texte vérifiés ≥ 4.5:1 par src/theme/__tests__/colors.test.ts.
+export const TONE_COLORS: Record<CommandTone, { background: string; text: string }> = {
   pending: { background: '#e0e7ff', text: '#3730a3' },
   success: { background: '#dcfce7', text: '#166534' },
   error: { background: '#fee2e2', text: '#991b1b' },
@@ -93,7 +96,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 14,
-    color: '#555',
+    color: palette.textSecondary,
     marginBottom: 8
   },
   buttons: {
@@ -111,12 +114,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#9ca3af'
   },
   buttonText: {
-    color: '#fff',
+    color: palette.onFilled,
     fontWeight: '600'
   },
   hint: {
     fontSize: 12,
-    color: '#888',
+    color: palette.textMuted,
     marginTop: 8
   },
   status: {

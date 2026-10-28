@@ -11,7 +11,7 @@ jest.mock('../../api/client', () => {
 
 const fetchLatestMeasurements = client.fetchLatestMeasurements as jest.Mock
 
-const room: Room = { id: 'room-1', name: 'Salle A', createdAt: '2026-01-01T00:00:00.000Z', hasSilentDevice: false }
+const room: Room = { id: 'room-1', name: 'Salle A', createdAt: '2026-01-01T00:00:00.000Z', hasSilentDevice: false, openAlertCount: 0 }
 
 const measurement: LatestMeasurement = {
   id: 'm1',

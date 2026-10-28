@@ -31,7 +31,7 @@ import type { FastifyInstance } from 'fastify'
 import type { MqttClient } from 'mqtt'
 import type { PrismaClient } from '@prisma/client'
 
-// Seuils d'alerte (ADR 0014) : ouverture au franchissement, retour à la
+// Seuils d'alerte (ADR 0015) : ouverture au franchissement, retour à la
 // normale seulement après la marge d'hystérésis. CO2 : 1000 ppm, repère
 // courant de qualité d'air intérieur, retour à 900. Température : confort
 // 16–28 °C, retour à 17 / 27.

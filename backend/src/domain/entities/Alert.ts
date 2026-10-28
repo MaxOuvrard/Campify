@@ -4,7 +4,7 @@ export type AlertReason = 'above_max' | 'below_min'
  * Incident de seuil sur un couple (device, type de mesure), avec un cycle de
  * vie : ouvert par la première mesure hors seuil, résolu par la première
  * mesure revenue dans la zone normale (hystérésis comprise) — voir
- * domain/services/alerts.ts et ADR 0014. Les mesures intermédiaires ne
+ * domain/services/alerts.ts et ADR 0015. Les mesures intermédiaires ne
  * créent jamais de nouvelle alerte : elles mettent seulement à jour
  * `lastValue`/`lastSeenAt`.
  */

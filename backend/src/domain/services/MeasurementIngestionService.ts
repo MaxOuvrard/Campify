@@ -24,7 +24,7 @@ const EVENT_TYPE = 'measurement_ingestion'
  * chaque mesure extraite. Ce service applique plausibilité puis
  * dédup/retard, écrit dans la base vérifiée si acceptée, puis délègue la
  * règle d'alerte à `AlertService` (ouverture/retour à la normale, ADR
- * 0014). Il ne décide jamais de la fraîcheur : elle se calcule à la
+ * 0015). Il ne décide jamais de la fraîcheur : elle se calcule à la
  * lecture (domain/services/freshness.ts).
  *
  * Chaque appel journalise son issue (acceptée ou rejetée, avec motif) sous
