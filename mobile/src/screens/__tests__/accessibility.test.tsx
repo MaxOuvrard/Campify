@@ -19,7 +19,7 @@ jest.mock('../../api/client', () => {
     fetchRooms: jest.fn(),
     fetchLatestMeasurements: jest.fn(),
     fetchRoomAlerts: jest.fn(),
-    fetchDeviceHistory: jest.fn()
+    fetchMetricHistory: jest.fn()
   }
 })
 
@@ -27,7 +27,7 @@ const login = client.login as jest.Mock
 const fetchRooms = client.fetchRooms as jest.Mock
 const fetchLatestMeasurements = client.fetchLatestMeasurements as jest.Mock
 const fetchRoomAlerts = client.fetchRoomAlerts as jest.Mock
-const fetchDeviceHistory = client.fetchDeviceHistory as jest.Mock
+const fetchMetricHistory = client.fetchMetricHistory as jest.Mock
 
 const room: Room = { id: 'room-1', name: 'Salle A', createdAt: '2026-01-01T00:00:00.000Z', hasSilentDevice: false, openAlertCount: 0 }
 
@@ -62,7 +62,7 @@ const openAlert: RoomAlert = {
 beforeEach(async () => {
   // Uniquement les mocks du client : `resetAllMocks` viderait aussi ceux de
   // NetInfo/AppState posés par jest.setup.ts.
-  for (const mock of [login, fetchRooms, fetchLatestMeasurements, fetchRoomAlerts, fetchDeviceHistory]) mock.mockReset()
+  for (const mock of [login, fetchRooms, fetchLatestMeasurements, fetchRoomAlerts, fetchMetricHistory]) mock.mockReset()
   await AsyncStorage.clear()
 })
 
@@ -151,17 +151,22 @@ describe('RoomDetailScreen', () => {
 })
 
 describe('DeviceHistoryScreen', () => {
-  it('nomme le retour et chaque barre du graphique par son heure et sa valeur', async () => {
-    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000)
-    tenMinutesAgo.setSeconds(0, 0)
-    fetchDeviceHistory.mockResolvedValueOnce([
-      { id: 'p1', deviceId: 'd1', type: 'co2', value: 812, unit: 'ppm', timestamp: tenMinutesAgo.toISOString() }
-    ])
+  it('nomme le retour et chaque barre du graphique par son heure, sa moyenne et ses extrêmes', async () => {
+    const to = new Date()
+    const from = new Date(to.getTime() - 24 * 60 * 60 * 1000)
+    fetchMetricHistory.mockResolvedValueOnce({
+      type: 'co2',
+      unit: 'ppm',
+      from: from.toISOString(),
+      to: to.toISOString(),
+      bucketMs: 5 * 60 * 1000,
+      buckets: [{ start: new Date(to.getTime() - 10 * 60 * 1000).toISOString(), avg: 812, min: 790, max: 840, count: 150 }]
+    })
     const view = await render(
       <DeviceHistoryScreen token="t" target={{ deviceId: 'd1', deviceName: 'Capteur 1', type: 'co2' }} onBack={() => {}} />
     )
 
     expect(await view.findByRole('button', { name: 'Retour à la salle' })).toBeTruthy()
-    expect(view.getByRole('button', { name: /^\d{2}:\d{2} : 812 ppm$/ })).toBeTruthy()
+    expect(view.getByRole('button', { name: /^\d{2}:\d{2} : moyenne 812 ppm, min 790, max 840$/ })).toBeTruthy()
   })
 })

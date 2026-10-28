@@ -10,6 +10,17 @@ export interface Measurement {
   messageId: string | null
 }
 
+/** Résumé d'un intervalle de temps de l'historique agrégé (domain/services/history.ts). */
+export interface MeasurementBucket {
+  /** Début de l'intervalle (inclus) ; il dure `bucketMs`. */
+  start: Date
+  avg: number
+  min: number
+  max: number
+  /** Nombre de mesures brutes résumées par cet intervalle. */
+  count: number
+}
+
 export interface NewMeasurement {
   deviceId: string
   type: string

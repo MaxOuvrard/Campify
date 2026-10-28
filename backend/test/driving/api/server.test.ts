@@ -500,6 +500,67 @@ test('GET /devices/:id/measurements clamps a "from" older than the max history s
   assert.equal(body[0].value, 19)
 })
 
+test('GET /devices/:id/history summarizes a whole 24h window of one metric in bounded buckets, keeping peaks', async (t) => {
+  const { app, device, measurements } = await buildTestApp()
+  t.after(() => app.close())
+  const token = await loginAs(app, 'viewer@test.local', 'viewer-pass')
+  const now = Date.now()
+  // Une mesure par minute sur 23h (1380 mesures), plus de 500 au total : l'ancien
+  // historique brut n'en aurait gardé que les 500 dernières (~8h).
+  for (let i = 0; i < 23 * 60; i++) {
+    await measurements.create({ deviceId: device.id, type: 'co2', value: i === 60 ? 1800 : 600, unit: 'ppm', timestamp: new Date(now - (i + 1) * 60 * 1000) })
+  }
+  await measurements.create({ deviceId: device.id, type: 'temperature', value: 21, unit: '°C', timestamp: new Date(now - 60 * 1000) })
+
+  const response = await app.inject({ method: 'GET', url: `/devices/${device.id}/history?type=co2`, headers: authHeader(token) })
+
+  assert.equal(response.statusCode, 200)
+  const body = response.json() as { type: string; unit: string; bucketMs: number; buckets: Array<{ start: string; avg: number; min: number; max: number; count: number }> }
+  assert.equal(body.type, 'co2')
+  assert.equal(body.unit, 'ppm')
+  assert.equal(body.bucketMs, 5 * 60 * 1000)
+  assert.ok(body.buckets.length <= 500)
+  // Toute la fenêtre est couverte, pas seulement la fin.
+  assert.ok(now - new Date(body.buckets[0].start).getTime() > 22 * 60 * 60 * 1000)
+  assert.equal(body.buckets.reduce((n, b) => n + b.count, 0), 23 * 60)
+  // Le pic isolé reste visible dans max ; la température ne s'est pas mélangée.
+  assert.equal(Math.max(...body.buckets.map((b) => b.max)), 1800)
+  assert.ok(body.buckets.every((b) => b.min >= 600))
+})
+
+test('GET /devices/:id/history requires a metric type', async (t) => {
+  const { app, device } = await buildTestApp()
+  t.after(() => app.close())
+  const token = await loginAs(app, 'viewer@test.local', 'viewer-pass')
+
+  const response = await app.inject({ method: 'GET', url: `/devices/${device.id}/history`, headers: authHeader(token) })
+
+  assert.equal(response.statusCode, 400)
+})
+
+test('GET /devices/:id/history returns 404 for an unknown device', async (t) => {
+  const { app } = await buildTestApp()
+  t.after(() => app.close())
+  const token = await loginAs(app, 'viewer@test.local', 'viewer-pass')
+
+  const response = await app.inject({ method: 'GET', url: '/devices/unknown/history?type=co2', headers: authHeader(token) })
+
+  assert.equal(response.statusCode, 404)
+})
+
+test('GET /devices/:id/history returns no bucket and a null unit for a metric never measured', async (t) => {
+  const { app, device } = await buildTestApp()
+  t.after(() => app.close())
+  const token = await loginAs(app, 'viewer@test.local', 'viewer-pass')
+
+  const response = await app.inject({ method: 'GET', url: `/devices/${device.id}/history?type=co2`, headers: authHeader(token) })
+
+  assert.equal(response.statusCode, 200)
+  const body = response.json() as { unit: string | null; buckets: unknown[] }
+  assert.equal(body.unit, null)
+  assert.deepStrictEqual(body.buckets, [])
+})
+
 test('GET /devices/:id/measurements rejects an invalid date range', async (t) => {
   const { app, device } = await buildTestApp()
   t.after(() => app.close())

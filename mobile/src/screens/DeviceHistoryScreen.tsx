@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
-import { ApiError, fetchDeviceHistory, HistoryPoint } from '../api/client'
+import { ApiError, fetchMetricHistory, HistoryBucket, MetricHistory } from '../api/client'
 import { readCache, writeCache } from '../storage/cache'
-import { formatDateTime, formatTime, metricLabel } from '../utils/format'
+import { formatBucketDuration, formatDateTime, formatTime, metricLabel } from '../utils/format'
 import { HistoryTarget } from '../store/appStore'
 import { colors } from '../theme/colors'
 
@@ -13,79 +13,46 @@ interface DeviceHistoryScreenProps {
 }
 
 const BAR_WIDTH = 8
+// Doit rester >= BAR_WIDTH + une marge, sinon deux intervalles consécutifs
+// se chevauchent.
+const PIXELS_PER_BUCKET = 12
 const CHART_HEIGHT = 220
 const TICK_AREA_HEIGHT = 22
-const WINDOW_HOURS = 24
-// Doit rester >= BAR_WIDTH + une marge, sinon deux minutes consécutives se
-// chevauchent.
-const PIXELS_PER_MINUTE = 12
-const CHART_WIDTH = WINDOW_HOURS * 60 * PIXELS_PER_MINUTE
-const TICK_STEP_HOURS = 2
+const TICK_STEP_MS = 2 * 60 * 60 * 1000
 const Y_AXIS_WIDTH = 44
 
-/**
- * Regroupe les points par minute (moyenne des valeurs de chaque minute) —
- * le kit publie environ toutes les 2s, sans ça une fenêtre de 24h afficherait
- * jusqu'à 500 barres quasi collées, illisibles. Suppose `points` déjà trié
- * du plus ancien au plus récent (garanti par le backend, voir history.ts).
- *
- * La minute en cours au moment de l'appel est exclue : elle n'a souvent
- * reçu qu'une ou deux mesures (pas les ~30 d'une minute complète), donc sa
- * "moyenne" n'est pas comparable aux barres précédentes et fait sauter la
- * dernière barre du graphique sans raison réelle.
- */
-function aggregateByMinute(points: HistoryPoint[], now: Date): HistoryPoint[] {
-  const currentMinute = new Date(now)
-  currentMinute.setSeconds(0, 0)
-  const currentMinuteKey = currentMinute.toISOString()
+function round1(value: number): number {
+  return Math.round(value * 10) / 10
+}
 
-  const buckets = new Map<string, { sum: number; count: number; sample: HistoryPoint }>()
-  for (const point of points) {
-    const minute = new Date(point.timestamp)
-    minute.setSeconds(0, 0)
-    const key = minute.toISOString()
-    if (key === currentMinuteKey) continue
-    const bucket = buckets.get(key)
-    if (bucket) {
-      bucket.sum += point.value
-      bucket.count += 1
-    } else {
-      buckets.set(key, { sum: point.value, count: 1, sample: point })
-    }
-  }
-  return [...buckets.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, bucket]) => ({
-      ...bucket.sample,
-      timestamp: key,
-      value: Math.round((bucket.sum / bucket.count) * 100) / 100
-    }))
+function bucketLabel(bucket: HistoryBucket, unit: string | null): string {
+  const u = unit ? ` ${unit}` : ''
+  return `${formatTime(bucket.start)} : moyenne ${round1(bucket.avg)}${u}, min ${round1(bucket.min)}, max ${round1(bucket.max)}`
 }
 
 export default function DeviceHistoryScreen({ token, target, onBack }: DeviceHistoryScreenProps) {
-  const [points, setPoints] = useState<HistoryPoint[] | null>(null)
+  const [history, setHistory] = useState<MetricHistory | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [dataAsOf, setDataAsOf] = useState<string | null>(null)
   const hasData = useRef(false)
-  const cacheKey = `device:${target.deviceId}:history:${target.type}`
+  // Clé distincte de l'ancien cache (mesures brutes) : un cache écrit par une
+  // version précédente de l'app n'a pas la même forme.
+  const cacheKey = `device:${target.deviceId}:history:${target.type}:buckets`
 
   const load = useCallback(async () => {
     setLoading(!hasData.current)
     setError(null)
     try {
-      // L'API renvoie tous les types de mesure du device sur la fenêtre par
-      // défaut (24h, voir domain/services/history.ts côté backend) — on ne
-      // garde ici que le type demandé, déjà trié du plus ancien au plus récent,
-      // puis on moyenne minute par minute pour ne pas afficher jusqu'à 500
-      // barres quasi collées.
-      const all = await fetchDeviceHistory(token, target.deviceId)
-      const filtered = all.filter((point) => point.type === target.type)
-      const aggregated = aggregateByMinute(filtered, new Date())
+      // Le backend résume déjà toute la fenêtre (24h par défaut) en au plus
+      // 500 intervalles de cette seule métrique — voir
+      // domain/services/history.ts : rien à filtrer ni à moyenner ici, et
+      // l'écran couvre vraiment 24h quel que soit le débit du capteur.
+      const fresh = await fetchMetricHistory(token, target.deviceId, target.type)
       hasData.current = true
-      setPoints(aggregated)
+      setHistory(fresh)
       setDataAsOf(new Date().toISOString())
-      void writeCache(cacheKey, aggregated)
+      void writeCache(cacheKey, fresh)
     } catch (err) {
       if (!hasData.current) {
         setError(err instanceof ApiError ? err.message : 'Erreur inattendue')
@@ -98,10 +65,10 @@ export default function DeviceHistoryScreen({ token, target, onBack }: DeviceHis
   useEffect(() => {
     let cancelled = false
     hasData.current = false
-    void readCache<HistoryPoint[]>(cacheKey).then((entry) => {
+    void readCache<MetricHistory>(cacheKey).then((entry) => {
       if (cancelled || entry === null || hasData.current) return
       hasData.current = true
-      setPoints(entry.data)
+      setHistory(entry.data)
       setDataAsOf(entry.cachedAt)
       setLoading(false)
     })
@@ -119,7 +86,9 @@ export default function DeviceHistoryScreen({ token, target, onBack }: DeviceHis
       <Text style={styles.title} accessibilityRole="header">
         {metricLabel(target.type)}
       </Text>
-      <Text style={styles.subtitle}>{target.deviceName} — dernières 24h</Text>
+      <Text style={styles.subtitle}>
+        {target.deviceName} — dernières 24h{history ? `, moyenne par ${formatBucketDuration(history.bucketMs)}` : ''}
+      </Text>
 
       {loading ? (
         <View style={styles.center}>
@@ -137,10 +106,10 @@ export default function DeviceHistoryScreen({ token, target, onBack }: DeviceHis
       ) : (
         <>
           {dataAsOf && <Text style={styles.syncInfo}>Données du {formatDateTime(dataAsOf)}</Text>}
-          {points && points.length === 0 ? (
+          {history && history.buckets.length === 0 ? (
             <Text style={styles.empty}>Aucune mesure sur les dernières 24h pour ce capteur.</Text>
           ) : (
-            points && <HistoryChart points={points} windowEnd={dataAsOf ? new Date(dataAsOf) : new Date()} />
+            history && <HistoryChart history={history} />
           )}
         </>
       )}
@@ -148,34 +117,41 @@ export default function DeviceHistoryScreen({ token, target, onBack }: DeviceHis
   )
 }
 
-function HistoryChart({ points, windowEnd }: { points: HistoryPoint[]; windowEnd: Date }) {
-  const values = points.map((p) => p.value)
-  const min = Math.min(...values)
-  const max = Math.max(...values)
-  // Marge pour qu'une série plate (min === max) reste lisible au lieu de
+function HistoryChart({ history }: { history: MetricHistory }) {
+  const { buckets, bucketMs, unit } = history
+  const u = unit ? ` ${unit}` : ''
+  // Échelle des barres sur les moyennes ; les extrêmes affichés en tête
+  // viennent des min/max des intervalles, pour qu'un pic bref reste lisible.
+  const avgs = buckets.map((b) => b.avg)
+  const low = Math.min(...avgs)
+  const high = Math.max(...avgs)
+  // Marge pour qu'une série plate (low === high) reste lisible au lieu de
   // donner des barres toutes à hauteur nulle ou toutes à hauteur max.
-  const span = max - min || 1
-  const latest = points[points.length - 1]
+  const span = high - low || 1
+  const lowest = Math.min(...buckets.map((b) => b.min))
+  const highest = Math.max(...buckets.map((b) => b.max))
+  const latest = buckets[buckets.length - 1]
   // Pas de "survol" sur mobile : on tape une barre pour l'épingler, l'entête
-  // affiche alors sa valeur et son heure à la place de "Dernière valeur".
-  const [selected, setSelected] = useState<HistoryPoint | null>(null)
+  // affiche alors son intervalle à la place de "Dernière valeur".
+  const [selected, setSelected] = useState<HistoryBucket | null>(null)
   const shown = selected ?? latest
   const scrollRef = useRef<ScrollView>(null)
 
-  // Axe temporel réel sur 24h fixes : une barre est positionnée à l'endroit
-  // exact de sa minute dans la fenêtre, pas à un index — les périodes sans
-  // mesure (ex. capteur silencieux) apparaissent comme un vrai espace vide
-  // plutôt que d'être invisiblement comprimées entre deux barres voisines.
-  const windowStart = new Date(windowEnd.getTime() - WINDOW_HOURS * 60 * 60 * 1000)
-  const xForTime = (iso: string) => {
-    const minutesFromStart = (new Date(iso).getTime() - windowStart.getTime()) / 60000
-    return Math.min(Math.max(minutesFromStart * PIXELS_PER_MINUTE, 0), CHART_WIDTH - BAR_WIDTH)
+  // Axe temporel réel : une barre est placée à la position de son intervalle
+  // dans la fenêtre, pas à un index — les périodes sans mesure (ex. capteur
+  // silencieux) apparaissent comme un vrai espace vide.
+  const windowStart = new Date(history.from).getTime()
+  const windowEnd = new Date(history.to).getTime()
+  const slots = Math.max(Math.ceil((windowEnd - windowStart) / bucketMs), 1)
+  const chartWidth = slots * PIXELS_PER_BUCKET
+  const xForTime = (ms: number) => {
+    const slot = Math.floor((ms - windowStart) / bucketMs)
+    return Math.min(Math.max(slot * PIXELS_PER_BUCKET, 0), chartWidth - BAR_WIDTH)
   }
 
   const ticks: { x: number; label: string }[] = []
-  for (let h = 0; h <= WINDOW_HOURS; h += TICK_STEP_HOURS) {
-    const tickDate = new Date(windowStart.getTime() + h * 60 * 60 * 1000)
-    ticks.push({ x: h * 60 * PIXELS_PER_MINUTE, label: formatTime(tickDate.toISOString()) })
+  for (let t = windowStart; t <= windowEnd; t += TICK_STEP_MS) {
+    ticks.push({ x: ((t - windowStart) / bucketMs) * PIXELS_PER_BUCKET, label: formatTime(new Date(t).toISOString()) })
   }
 
   return (
@@ -186,27 +162,32 @@ function HistoryChart({ points, windowEnd }: { points: HistoryPoint[]; windowEnd
           disabled={selected === null}
           style={styles.summaryTouchable}
           accessibilityRole={selected ? 'button' : 'text'}
-          accessibilityLabel={`${selected ? formatTime(selected.timestamp) : 'Dernière valeur'} : ${shown.value}${shown.unit ? ` ${shown.unit}` : ''}`}
-          accessibilityHint={selected ? 'Revient à la dernière valeur' : undefined}
+          accessibilityLabel={selected ? bucketLabel(selected, unit) : `Dernier intervalle, ${bucketLabel(latest, unit)}`}
+          accessibilityHint={selected ? 'Revient au dernier intervalle' : undefined}
         >
-          <Text style={styles.summaryLabel}>{selected ? formatTime(selected.timestamp) : 'Dernière valeur'}</Text>
-          <Text style={styles.summaryValue}>
-            {shown.value}
-            {shown.unit ? ` ${shown.unit}` : ''}
+          <Text style={styles.summaryLabel}>
+            {selected ? `${formatTime(selected.start)} (${formatBucketDuration(bucketMs)})` : 'Dernier intervalle'}
           </Text>
-          {selected && <Text style={styles.summaryHint}>Toucher pour revenir à la dernière valeur</Text>}
+          <Text style={styles.summaryValue}>
+            {round1(shown.avg)}
+            {u}
+          </Text>
+          <Text style={styles.summaryLabel}>
+            min {round1(shown.min)} · max {round1(shown.max)} · {shown.count} mesure{shown.count > 1 ? 's' : ''}
+          </Text>
+          {selected && <Text style={styles.summaryHint}>Toucher pour revenir au dernier intervalle</Text>}
         </TouchableOpacity>
         <View style={styles.summaryMinMax}>
-          <Text style={styles.summaryMinMaxText}>min {min}</Text>
-          <Text style={styles.summaryMinMaxText}>max {max}</Text>
+          <Text style={styles.summaryMinMaxText}>min 24h {round1(lowest)}</Text>
+          <Text style={styles.summaryMinMaxText}>max 24h {round1(highest)}</Text>
         </View>
       </View>
 
       <View style={styles.chartRow}>
         <View style={styles.yAxis}>
-          <Text style={[styles.yAxisLabel, { top: -6 }]}>{max}</Text>
-          <Text style={[styles.yAxisLabel, { top: CHART_HEIGHT / 2 - 6 }]}>{Math.round(((min + max) / 2) * 10) / 10}</Text>
-          <Text style={[styles.yAxisLabel, { top: CHART_HEIGHT - 8 }]}>{min}</Text>
+          <Text style={[styles.yAxisLabel, { top: -6 }]}>{round1(high)}</Text>
+          <Text style={[styles.yAxisLabel, { top: CHART_HEIGHT / 2 - 6 }]}>{round1((low + high) / 2)}</Text>
+          <Text style={[styles.yAxisLabel, { top: CHART_HEIGHT - 8 }]}>{round1(low)}</Text>
         </View>
         <ScrollView
           ref={scrollRef}
@@ -215,26 +196,26 @@ function HistoryChart({ points, windowEnd }: { points: HistoryPoint[]; windowEnd
           contentContainerStyle={styles.chartScroll}
           onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
         >
-          <View style={styles.chartCanvas}>
+          <View style={[styles.chartCanvas, { width: chartWidth }]}>
             <View style={[styles.hGridLine, { top: 0 }]} />
             <View style={[styles.hGridLine, { top: CHART_HEIGHT / 2 }]} />
             <View style={[styles.hGridLine, { top: CHART_HEIGHT }]} />
             {ticks.map((tick) => (
               <View key={tick.x} style={[styles.gridLine, { left: tick.x }]} />
             ))}
-            {points.map((point) => {
-              const heightRatio = (point.value - min) / span
+            {buckets.map((bucket) => {
+              const heightRatio = (bucket.avg - low) / span
               const barHeight = Math.max(4, heightRatio * CHART_HEIGHT)
-              const isSelected = selected?.id === point.id
+              const isSelected = selected?.start === bucket.start
               return (
                 <TouchableOpacity
-                  key={point.id}
-                  style={[styles.barTouchable, { left: xForTime(point.timestamp) }]}
+                  key={bucket.start}
+                  style={[styles.barTouchable, { left: xForTime(new Date(bucket.start).getTime()) }]}
                   activeOpacity={0.7}
-                  hitSlop={{ left: 3, right: 3, top: 0, bottom: 0 }}
-                  onPress={() => setSelected(point)}
+                  hitSlop={{ left: 2, right: 2, top: 0, bottom: 0 }}
+                  onPress={() => setSelected(bucket)}
                   accessibilityRole="button"
-                  accessibilityLabel={`${formatTime(point.timestamp)} : ${point.value}${point.unit ? ` ${point.unit}` : ''}`}
+                  accessibilityLabel={bucketLabel(bucket, unit)}
                   accessibilityState={{ selected: isSelected }}
                 >
                   <View style={[styles.bar, { height: barHeight }, isSelected && styles.barSelected]} />
@@ -361,7 +342,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22
   },
   chartCanvas: {
-    width: CHART_WIDTH,
     height: CHART_HEIGHT + TICK_AREA_HEIGHT,
     position: 'relative'
   },

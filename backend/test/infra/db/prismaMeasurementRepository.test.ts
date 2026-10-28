@@ -99,3 +99,42 @@ test('PrismaMeasurementRepository respects the MeasurementRepository contract', 
     await prisma.$disconnect()
   }
 })
+
+test('PrismaMeasurementRepository buckets a metric with time_bucket, bounded and peak-preserving', { skip: !process.env.DATABASE_URL }, async () => {
+  const prisma = new PrismaClient()
+  const measurements = new PrismaMeasurementRepository(prisma)
+  const devices = new PrismaDeviceRepository(prisma)
+  const rooms = new PrismaRoomRepository(prisma)
+
+  const room = await rooms.create(`test-room-${randomUUID()}`)
+  try {
+    const device = await devices.create({ name: 'test-device', type: 'co2', roomId: room.id })
+    const to = new Date('2024-01-02T00:00:00Z')
+    const from = new Date(to.getTime() - 24 * 60 * 60 * 1000)
+    // 2000 mesures CO2 régulières sur 24h (+ un pic), et de la température au même rythme.
+    const step = (24 * 60 * 60 * 1000) / 2000
+    const rows = Array.from({ length: 2000 }, (_, i) => ({
+      deviceId: device.id,
+      type: 'co2',
+      value: i === 1234 ? 2400 : 500 + (i % 10),
+      timestamp: new Date(from.getTime() + i * step)
+    }))
+    await prisma.measurement.createMany({ data: [...rows, ...rows.map((r) => ({ ...r, type: 'temperature', value: 21 }))] })
+
+    const bucketMs = 5 * 60 * 1000
+    const buckets = await measurements.findBucketedByDeviceInRange(device.id, 'co2', from, to, bucketMs)
+
+    assert.equal(buckets.length, 288)
+    assert.equal(buckets.reduce((n, b) => n + b.count, 0), 2000)
+    assert.ok(buckets.every((b, i) => i === 0 || b.start > buckets[i - 1].start))
+    assert.ok(buckets.every((b) => b.start.getTime() % bucketMs === 0))
+    assert.equal(Math.max(...buckets.map((b) => b.max)), 2400)
+    assert.ok(buckets.every((b) => b.min >= 500 && b.avg >= b.min && b.avg <= b.max))
+    assert.equal(typeof buckets[0].avg, 'number')
+  } finally {
+    await prisma.measurement.deleteMany({ where: { device: { roomId: room.id } } })
+    await prisma.device.deleteMany({ where: { roomId: room.id } })
+    await prisma.room.deleteMany({ where: { id: room.id } })
+    await prisma.$disconnect()
+  }
+})

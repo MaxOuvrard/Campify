@@ -6,7 +6,7 @@ import { RoomRepository } from '../../src/domain/ports/RoomRepository'
 import { UserRepository } from '../../src/domain/ports/UserRepository'
 import { AlertRepository } from '../../src/domain/ports/AlertRepository'
 import { Device } from '../../src/domain/entities/Device'
-import { Measurement, NewMeasurement } from '../../src/domain/entities/Measurement'
+import { Measurement, MeasurementBucket, NewMeasurement } from '../../src/domain/entities/Measurement'
 import { Command, CommandStatus, LateAck, NewCommand } from '../../src/domain/entities/Command'
 import { Room } from '../../src/domain/entities/Room'
 import { User } from '../../src/domain/entities/User'
@@ -82,6 +82,26 @@ export class InMemoryMeasurementRepository implements MeasurementRepository {
       .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime() || b.receivedAt.getTime() - a.receivedAt.getTime())
       .slice(0, limit)
       .reverse()
+  }
+
+  async findBucketedByDeviceInRange(deviceId: string, type: string, from: Date, to: Date, bucketMs: number): Promise<MeasurementBucket[]> {
+    const buckets = new Map<number, MeasurementBucket & { sum: number }>()
+    for (const m of this.measurements) {
+      if (m.deviceId !== deviceId || m.type !== type || m.timestamp < from || m.timestamp > to) continue
+      const start = Math.floor(m.timestamp.getTime() / bucketMs) * bucketMs
+      const b = buckets.get(start)
+      if (b) {
+        b.sum += m.value
+        b.count += 1
+        b.min = Math.min(b.min, m.value)
+        b.max = Math.max(b.max, m.value)
+      } else {
+        buckets.set(start, { start: new Date(start), avg: 0, min: m.value, max: m.value, count: 1, sum: m.value })
+      }
+    }
+    return [...buckets.values()]
+      .sort((a, b) => a.start.getTime() - b.start.getTime())
+      .map(({ sum, ...b }) => ({ ...b, avg: sum / b.count }))
   }
 
   async findLatestByDeviceGroupedByType(deviceId: string): Promise<Measurement[]> {

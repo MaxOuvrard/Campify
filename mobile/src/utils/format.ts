@@ -29,3 +29,10 @@ export function alertLabel(type: string, reason: 'above_max' | 'below_min'): str
 export function openAlertCountLabel(count: number): string {
   return count === 1 ? '1 alerte en cours' : `${count} alertes en cours`
 }
+
+/** Durée d'un intervalle d'historique : « 10 s », « 5 min », « 2 h ». */
+export function formatBucketDuration(ms: number): string {
+  if (ms < 60_000) return `${Math.round(ms / 1000)} s`
+  if (ms < 3_600_000) return `${Math.round(ms / 60_000)} min`
+  return `${Math.round(ms / 3_600_000)} h`
+}

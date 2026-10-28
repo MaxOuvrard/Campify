@@ -44,7 +44,7 @@ export interface Room {
   createdAt: string
   /** Au moins une mesure périmée parmi les devices de la salle — voir domain/services/freshness.ts. */
   hasSilentDevice: boolean
-  /** Alertes en cours sur les devices de la salle — voir ADR 0014. */
+  /** Alertes en cours sur les devices de la salle — voir ADR 0015. */
   openAlertCount: number
 }
 
@@ -114,18 +114,32 @@ export function fetchRoomAlerts(token: string, roomId: string): Promise<RoomAler
   return authorizedGet<RoomAlert[]>(`/rooms/${roomId}/alerts?status=all`, token)
 }
 
-export interface HistoryPoint {
-  id: string
-  deviceId: string
-  type: string
-  value: number
-  unit: string | null
-  timestamp: string
+export interface HistoryBucket {
+  /** Début de l'intervalle (ISO) ; il dure `MetricHistory.bucketMs`. */
+  start: string
+  avg: number
+  min: number
+  max: number
+  /** Nombre de mesures brutes résumées. */
+  count: number
 }
 
-/** Historique borné côté backend (fenêtre 24h par défaut, voir domain/services/history.ts) — toutes métriques du device confondues, triées du plus ancien au plus récent. */
-export function fetchDeviceHistory(token: string, deviceId: string): Promise<HistoryPoint[]> {
-  return authorizedGet<HistoryPoint[]>(`/devices/${deviceId}/measurements`, token)
+export interface MetricHistory {
+  type: string
+  unit: string | null
+  from: string
+  to: string
+  bucketMs: number
+  buckets: HistoryBucket[]
+}
+
+/**
+ * Historique d'une métrique résumé par intervalles côté backend (fenêtre
+ * 24h par défaut, au plus 500 intervalles — voir domain/services/history.ts) :
+ * couvre toute la fenêtre, quel que soit le débit du capteur.
+ */
+export function fetchMetricHistory(token: string, deviceId: string, type: string): Promise<MetricHistory> {
+  return authorizedGet<MetricHistory>(`/devices/${deviceId}/history?type=${encodeURIComponent(type)}`, token)
 }
 
 export interface AssociatedDevice {

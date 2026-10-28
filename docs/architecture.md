@@ -203,7 +203,7 @@ couple, garanti aussi en base (colonne `openKey` unique).
 un retard ne peut ni ouvrir ni fermer une alerte. Chaque transition est
 journalisée une seule fois (`eventType: 'alert'`, `status` `opened`/
 `resolved`, `alertId`, `eventId` de la mesure déclenchante). Détail,
-alternatives et limites : [ADR 0014](decisions/0014-alertes-cycle-de-vie-et-hysteresis.md).
+alternatives et limites : [ADR 0015](decisions/0015-alertes-cycle-de-vie-et-hysteresis.md).
 
 Le process API ne fait que les lire :
 
@@ -229,10 +229,20 @@ d'un champ mutable maintenu à part) via `domain/services/freshness.ts`
   diverger de la présence sur un device multi-métriques dont les capteurs
   n'envoient pas au même rythme.
 
-L'historique exposé par `GET /devices/:id/measurements` est borné
-(`domain/services/history.ts`) : fenêtre par défaut 24h, plage max 7
-jours, 500 points max, pour qu'un client ne puisse jamais déclencher une
-requête de stockage illimitée.
+Toutes les mesures sont conservées (hypertable, compressée au-delà de 7
+jours), mais aucune lecture n'en renvoie un nombre illimité
+(`domain/services/history.ts`) — fenêtre par défaut 24h, plage max 7 jours :
+
+- `GET /devices/:id/history?type=co2&from&to` (écran historique) : la
+  métrique résumée par intervalles (`time_bucket` TimescaleDB), au plus 500
+  sur **toute** la plage — 5 min pour 24h, 30 min pour 7 jours. Chaque
+  intervalle porte moyenne, min, max et nombre de mesures : un pic bref
+  reste visible dans `max`. Taille de réponse indépendante du débit des
+  capteurs.
+- `GET /devices/:id/measurements` : les 500 dernières mesures **brutes** de
+  la plage, tous types confondus. À la cadence du kit (2 s, 2 métriques)
+  elles ne couvrent que quelques minutes d'une fenêtre de 24h — c'est ce
+  que l'écran historique affichait avant l'agrégation.
 
 ## Identité des devices et sécurité MQTT
 
@@ -379,7 +389,7 @@ texte « En alerte », « Capteur silencieux »). Éléments actionnables avec
 | Cache mobile | AsyncStorage | Dernière réponse connue par clé + date, best-effort — voir [ADR 0006](decisions/0006-cache-mobile-et-affichage-de-la-fraicheur.md) |
 | Auth & droits | JWT (`@fastify/jwt`) + RBAC | Distingue droits de consultation et droits de commande |
 | Auth MQTT | mosquitto password_file + ACL par device (broker local) | Un device ne peut publier que sur sa propre télémétrie — voir [ADR 0008](decisions/0008-identite-devices-authentification-mqtt.md) |
-| Alertes | `domain/services/alerts.ts` + `AlertService`, table `Alert` | Cycle de vie ouverte → résolue, hystérésis, une seule alerte ouverte par device+type — voir [ADR 0014](decisions/0014-alertes-cycle-de-vie-et-hysteresis.md) |
+| Alertes | `domain/services/alerts.ts` + `AlertService`, table `Alert` | Cycle de vie ouverte → résolue, hystérésis, une seule alerte ouverte par device+type — voir [ADR 0015](decisions/0015-alertes-cycle-de-vie-et-hysteresis.md) |
 | Plausibilité des mesures | `domain/services/plausibility.ts` | Bornes physiques par type de métrique, rejet avant la base vérifiée (trace conservée dans le journal brut) |
 | Logs | Pino (JSON), `eventType`/`eventId`/`status`/`reason` | Corrélation d'une mesure de sa réception à son traitement |
 | Centralisation des logs | Loki + Promtail + Grafana (`docker-compose.yml`) | Dashboard provisionné, filtres par device/rejets/doublons/retard/MQTT — voir [ADR 0009](decisions/0009-stack-logs-centralises.md) |

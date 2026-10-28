@@ -1,6 +1,6 @@
 import { Prisma, PrismaClient } from '@prisma/client'
 import { MeasurementRepository } from '../../domain/ports/MeasurementRepository'
-import { Measurement, NewMeasurement } from '../../domain/entities/Measurement'
+import { Measurement, MeasurementBucket, NewMeasurement } from '../../domain/entities/Measurement'
 import { NotFoundError } from '../../shared/errors'
 
 interface MeasurementRow {
@@ -63,6 +63,19 @@ export class PrismaMeasurementRepository implements MeasurementRepository {
       take: limit
     })
     return rows.map(toDomain).reverse()
+  }
+
+  async findBucketedByDeviceInRange(deviceId: string, type: string, from: Date, to: Date, bucketMs: number): Promise<MeasurementBucket[]> {
+    // time_bucket (TimescaleDB) : l'agrégation se fait dans la base, la
+    // réponse ne transporte jamais plus d'une ligne par intervalle — et
+    // l'index (deviceId, timestamp) borne le parcours à la plage demandée.
+    return this.prisma.$queryRaw<MeasurementBucket[]>`
+      SELECT time_bucket(${bucketMs}::int * interval '1 millisecond', "timestamp") AS start,
+             avg("value")::float8 AS avg, min("value") AS min, max("value") AS max, count(*)::int AS count
+      FROM "Measurement"
+      WHERE "deviceId" = ${deviceId} AND "type" = ${type} AND "timestamp" >= ${from} AND "timestamp" <= ${to}
+      GROUP BY start
+      ORDER BY start`
   }
 
   async findLatestByDeviceGroupedByType(deviceId: string): Promise<Measurement[]> {
