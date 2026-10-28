@@ -88,5 +88,8 @@ Garanties :
   négligeable face à l'`INSERT` de la mesure elle-même.
 - Un seul seuil par type de mesure, commun à toutes les salles ; des seuils
   par salle demanderaient de les stocker en base.
+- Les alertes sont liées au device, pas à la salle : un device réaffecté
+  (ADR 0007) emporte ses alertes, ouvertes comme passées, dans sa nouvelle
+  salle (`GET /rooms/:id/alerts`, `openAlertCount`) — comme ses mesures.
 - Les seuils sont en code (`composition.ts`) : les changer demande un
   redéploiement du worker.

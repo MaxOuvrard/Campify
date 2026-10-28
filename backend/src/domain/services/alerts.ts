@@ -15,6 +15,12 @@ export interface AlertThreshold {
   hysteresis: number
 }
 
+export type AlertStatus = 'open' | 'resolved'
+
+export function alertStatus(alert: Alert): AlertStatus {
+  return alert.resolvedAt === null ? 'open' : 'resolved'
+}
+
 export type AlertTransition =
   | { kind: 'none' }
   | { kind: 'open'; reason: AlertReason; threshold: number }

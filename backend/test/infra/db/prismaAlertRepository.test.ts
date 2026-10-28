@@ -57,6 +57,21 @@ test('PrismaAlertRepository respects the AlertRepository contract', { skip: !pro
     // Après résolution, un nouvel incident ouvre bien une nouvelle alerte.
     const next = await alerts.open({ ...input, openedAt: new Date('2024-01-01T11:00:00Z') })
     assert.notEqual(next.id, opened.id)
+
+    // Lectures du process API.
+    const openNow = await alerts.findOpenByDevices([device.id])
+    assert.deepEqual(openNow.map((a) => a.id), [next.id])
+
+    const history = await alerts.findByDevicesInRange([device.id], new Date('2024-01-01T09:00:00Z'), new Date('2024-01-01T12:00:00Z'), 500)
+    assert.deepEqual(history.map((a) => a.id), [next.id, opened.id])
+    // Résolue avant le début de la plage : hors historique.
+    const later = await alerts.findByDevicesInRange([device.id], new Date('2024-01-01T10:30:00Z'), new Date('2024-01-01T12:00:00Z'), 500)
+    assert.deepEqual(later.map((a) => a.id), [next.id])
+    const limited = await alerts.findByDevicesInRange([device.id], new Date('2024-01-01T09:00:00Z'), new Date('2024-01-01T12:00:00Z'), 1)
+    assert.deepEqual(limited.map((a) => a.id), [next.id])
+
+    const counts = await alerts.countOpenByRoom()
+    assert.equal(counts.get(room.id), 1)
   } finally {
     await prisma.alert.deleteMany({ where: { device: { roomId: room.id } } })
     await prisma.device.deleteMany({ where: { roomId: room.id } })

@@ -173,6 +173,9 @@ export class InMemoryUserRepository implements UserRepository {
 export class InMemoryAlertRepository implements AlertRepository {
   readonly alerts: Alert[] = []
 
+  /** `devices` ne sert qu'à `countOpenByRoom` (salle courante de chaque device). */
+  constructor(private readonly devices?: DeviceRepository) {}
+
   async findOpen(deviceId: string, measurementType: string): Promise<Alert | null> {
     return this.alerts.find((a) => a.deviceId === deviceId && a.measurementType === measurementType && a.resolvedAt === null) ?? null
   }
@@ -208,5 +211,31 @@ export class InMemoryAlertRepository implements AlertRepository {
     alert.resolvedAt = update.at
     alert.resolvedValue = update.value
     alert.resolvedEventId = update.eventId
+  }
+
+  async findOpenByDevices(deviceIds: string[]): Promise<Alert[]> {
+    return this.newestFirst(this.alerts.filter((a) => deviceIds.includes(a.deviceId) && a.resolvedAt === null))
+  }
+
+  async findByDevicesInRange(deviceIds: string[], from: Date, to: Date, limit: number): Promise<Alert[]> {
+    const active = this.alerts.filter(
+      (a) => deviceIds.includes(a.deviceId) && a.openedAt <= to && (a.resolvedAt === null || a.resolvedAt >= from)
+    )
+    return this.newestFirst(active).slice(0, limit)
+  }
+
+  async countOpenByRoom(): Promise<Map<string, number>> {
+    const counts = new Map<string, number>()
+    for (const alert of this.alerts) {
+      if (alert.resolvedAt !== null) continue
+      const device = await this.devices?.findById(alert.deviceId)
+      if (!device) continue
+      counts.set(device.roomId, (counts.get(device.roomId) ?? 0) + 1)
+    }
+    return counts
+  }
+
+  private newestFirst(alerts: Alert[]): Alert[] {
+    return [...alerts].sort((a, b) => b.openedAt.getTime() - a.openedAt.getTime())
   }
 }

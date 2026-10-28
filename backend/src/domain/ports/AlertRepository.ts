@@ -8,4 +8,12 @@ export interface AlertRepository {
   /** Mesure toujours hors zone normale : met à jour la dernière valeur vue, sans créer d'alerte. */
   recordOngoing(id: string, update: AlertUpdate): Promise<void>
   resolve(id: string, update: AlertUpdate): Promise<void>
+
+  // Lectures (process API) — l'API ne crée ni ne résout jamais d'alerte.
+  /** Alertes non résolues de ces devices, plus récentes d'abord. */
+  findOpenByDevices(deviceIds: string[]): Promise<Alert[]>
+  /** Alertes actives à un moment de [from, to] (ouvertes avant `to`, non résolues avant `from`), plus récentes d'abord, au plus `limit`. */
+  findByDevicesInRange(deviceIds: string[], from: Date, to: Date, limit: number): Promise<Alert[]>
+  /** Nombre d'alertes non résolues par salle (salle courante du device) ; les salles sans alerte sont absentes. */
+  countOpenByRoom(): Promise<Map<string, number>>
 }

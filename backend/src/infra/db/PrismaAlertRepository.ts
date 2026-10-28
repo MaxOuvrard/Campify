@@ -86,4 +86,35 @@ export class PrismaAlertRepository implements AlertRepository {
       }
     })
   }
+
+  async findOpenByDevices(deviceIds: string[]): Promise<Alert[]> {
+    const rows = await this.prisma.alert.findMany({
+      where: { deviceId: { in: deviceIds }, resolvedAt: null },
+      orderBy: { openedAt: 'desc' }
+    })
+    return rows.map(toDomain)
+  }
+
+  async findByDevicesInRange(deviceIds: string[], from: Date, to: Date, limit: number): Promise<Alert[]> {
+    const rows = await this.prisma.alert.findMany({
+      where: {
+        deviceId: { in: deviceIds },
+        openedAt: { lte: to },
+        OR: [{ resolvedAt: null }, { resolvedAt: { gte: from } }]
+      },
+      orderBy: { openedAt: 'desc' },
+      take: limit
+    })
+    return rows.map(toDomain)
+  }
+
+  async countOpenByRoom(): Promise<Map<string, number>> {
+    // Une seule requête pour toutes les salles (GET /rooms), plutôt qu'une par salle.
+    const rows = await this.prisma.$queryRaw<Array<{ roomId: string; count: bigint }>>`
+      SELECT d."roomId", COUNT(*) AS count
+      FROM "Alert" a JOIN "Device" d ON d."id" = a."deviceId"
+      WHERE a."resolvedAt" IS NULL
+      GROUP BY d."roomId"`
+    return new Map(rows.map((r) => [r.roomId, Number(r.count)]))
+  }
 }

@@ -71,6 +71,7 @@ export async function startApplication(): Promise<Application> {
   const measurements = new PrismaMeasurementRepository(prisma)
   const commands = new PrismaCommandRepository(prisma)
   const users = new PrismaUserRepository(prisma)
+  const alerts = new PrismaAlertRepository(prisma)
 
   const mqttClient = mqtt.connect(config.MQTT_URL)
   const publisher = new MqttCommandPublisher(mqttClient, topics)
@@ -84,6 +85,7 @@ export async function startApplication(): Promise<Application> {
     rooms,
     devices,
     measurements,
+    alerts,
     commandService,
     commands,
     deviceAssociationService,

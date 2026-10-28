@@ -144,6 +144,17 @@ journalisée une seule fois (`eventType: 'alert'`, `status` `opened`/
 `resolved`, `alertId`, `eventId` de la mesure déclenchante). Détail,
 alternatives et limites : [ADR 0014](decisions/0014-alertes-cycle-de-vie-et-hysteresis.md).
 
+Le process API ne fait que les lire :
+
+- `GET /rooms` → `openAlertCount` par salle (une seule requête groupée
+  pour toutes les salles) ;
+- `GET /rooms/:id/alerts` → alertes en cours (défaut, bornées par
+  construction : au plus une par device+type), ou historique avec
+  `status=all&from&to` — alertes actives à un moment de la plage, même
+  bornage que l'historique des mesures (24h par défaut, 7 jours max, 500
+  lignes). Chaque alerte porte `deviceName` et `status` (`open`/`resolved`).
+  Salle inconnue → 404.
+
 ## Fraîcheur et présence
 
 Deux notions distinctes, toutes deux dérivées des mesures reçues (jamais

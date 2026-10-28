@@ -9,7 +9,8 @@ import {
   InMemoryDeviceRepository,
   InMemoryMeasurementRepository,
   InMemoryCommandRepository,
-  InMemoryUserRepository
+  InMemoryUserRepository,
+  InMemoryAlertRepository
 } from '../../fakes/inMemoryRepositories'
 import { FixedClock, FakeMqttPublisher } from '../../fakes/testDoubles'
 
@@ -19,6 +20,7 @@ async function buildTestApp() {
   const measurements = new InMemoryMeasurementRepository()
   const commands = new InMemoryCommandRepository()
   const users = new InMemoryUserRepository()
+  const alerts = new InMemoryAlertRepository(devices)
   const publisher = new FakeMqttPublisher()
   const clock = new FixedClock(new Date('2024-01-01T00:00:00Z'))
   const commandService = new CommandService(commands, devices, publisher, clock)
@@ -48,13 +50,14 @@ async function buildTestApp() {
     rooms,
     devices,
     measurements,
+    alerts,
     commandService,
     commands,
     deviceAssociationService,
     staleThresholdMs: 5 * 60 * 1000
   })
 
-  return { app, rooms, devices, measurements, commands, users, publisher, room, device }
+  return { app, rooms, devices, measurements, alerts, commands, users, publisher, room, device }
 }
 
 async function loginAs(app: Awaited<ReturnType<typeof buildTestApp>>['app'], email: string, password: string): Promise<string> {
@@ -258,6 +261,124 @@ test('GET /rooms/:id/measurements/latest returns an empty list when the room has
 
   assert.equal(response.statusCode, 200)
   assert.deepEqual(response.json(), [])
+})
+
+function openCo2Alert(alerts: InMemoryAlertRepository, deviceId: string, openedAt: Date) {
+  return alerts.open({ deviceId, measurementType: 'co2', reason: 'above_max', threshold: 1000, triggerValue: 1200, openedAt, openedEventId: 'msg-open' })
+}
+
+test('GET /rooms reports openAlertCount per room, across several rooms', async (t) => {
+  const { app, rooms, devices, alerts, room, device } = await buildTestApp()
+  t.after(() => app.close())
+  const token = await loginAs(app, 'viewer@test.local', 'viewer-pass')
+  const calmRoom = await rooms.create('Salle Calme')
+  await devices.create({ name: 'Sensor 2', type: 'co2', roomId: calmRoom.id })
+  await openCo2Alert(alerts, device.id, new Date())
+  await alerts.open({ deviceId: device.id, measurementType: 'temperature', reason: 'below_min', threshold: 16, triggerValue: 14, openedAt: new Date(), openedEventId: null })
+
+  const response = await app.inject({ method: 'GET', url: '/rooms', headers: authHeader(token) })
+
+  assert.equal(response.statusCode, 200)
+  const body = response.json() as Array<{ id: string; openAlertCount: number }>
+  assert.equal(body.find((r) => r.id === room.id)?.openAlertCount, 2)
+  assert.equal(body.find((r) => r.id === calmRoom.id)?.openAlertCount, 0)
+})
+
+test('GET /rooms/:id/alerts requires authentication', async (t) => {
+  const { app, room } = await buildTestApp()
+  t.after(() => app.close())
+
+  const response = await app.inject({ method: 'GET', url: `/rooms/${room.id}/alerts` })
+
+  assert.equal(response.statusCode, 401)
+})
+
+test('GET /rooms/:id/alerts returns 404 for an unknown room', async (t) => {
+  const { app } = await buildTestApp()
+  t.after(() => app.close())
+  const token = await loginAs(app, 'viewer@test.local', 'viewer-pass')
+
+  const response = await app.inject({ method: 'GET', url: '/rooms/unknown-room/alerts', headers: authHeader(token) })
+
+  assert.equal(response.statusCode, 404)
+})
+
+test('GET /rooms/:id/alerts rejects an invalid status', async (t) => {
+  const { app, room } = await buildTestApp()
+  t.after(() => app.close())
+  const token = await loginAs(app, 'viewer@test.local', 'viewer-pass')
+
+  const response = await app.inject({ method: 'GET', url: `/rooms/${room.id}/alerts?status=foo`, headers: authHeader(token) })
+
+  assert.equal(response.statusCode, 400)
+  assert.equal((response.json() as { error: string }).error, 'validation_error')
+})
+
+test('GET /rooms/:id/alerts returns an empty list when the room has no alert', async (t) => {
+  const { app, room } = await buildTestApp()
+  t.after(() => app.close())
+  const token = await loginAs(app, 'viewer@test.local', 'viewer-pass')
+
+  const response = await app.inject({ method: 'GET', url: `/rooms/${room.id}/alerts`, headers: authHeader(token) })
+
+  assert.equal(response.statusCode, 200)
+  assert.deepStrictEqual(response.json(), [])
+})
+
+test('GET /rooms/:id/alerts returns only open alerts by default, with deviceName and status', async (t) => {
+  const { app, alerts, room, device } = await buildTestApp()
+  t.after(() => app.close())
+  const token = await loginAs(app, 'viewer@test.local', 'viewer-pass')
+  const now = Date.now()
+  const resolved = await openCo2Alert(alerts, device.id, new Date(now - 2 * 60 * 60 * 1000))
+  await alerts.resolve(resolved.id, { value: 850, at: new Date(now - 60 * 60 * 1000), eventId: 'msg-resolve' })
+  const open = await openCo2Alert(alerts, device.id, new Date(now - 10 * 60 * 1000))
+
+  const response = await app.inject({ method: 'GET', url: `/rooms/${room.id}/alerts`, headers: authHeader(token) })
+
+  assert.equal(response.statusCode, 200)
+  const body = response.json() as Array<{ id: string; deviceName: string; status: string }>
+  assert.deepStrictEqual(body.map((a) => a.id), [open.id])
+  assert.equal(body[0].deviceName, 'Sensor 1')
+  assert.equal(body[0].status, 'open')
+})
+
+test('GET /rooms/:id/alerts?status=all returns the history including resolved alerts, newest first', async (t) => {
+  const { app, alerts, room, device } = await buildTestApp()
+  t.after(() => app.close())
+  const token = await loginAs(app, 'viewer@test.local', 'viewer-pass')
+  const now = Date.now()
+  const resolved = await openCo2Alert(alerts, device.id, new Date(now - 2 * 60 * 60 * 1000))
+  await alerts.resolve(resolved.id, { value: 850, at: new Date(now - 60 * 60 * 1000), eventId: 'msg-resolve' })
+  const open = await openCo2Alert(alerts, device.id, new Date(now - 10 * 60 * 1000))
+
+  const response = await app.inject({ method: 'GET', url: `/rooms/${room.id}/alerts?status=all`, headers: authHeader(token) })
+
+  assert.equal(response.statusCode, 200)
+  const body = response.json() as Array<{ id: string; status: string }>
+  assert.deepStrictEqual(body.map((a) => [a.id, a.status]), [[open.id, 'open'], [resolved.id, 'resolved']])
+})
+
+test('GET /rooms/:id/alerts?status=all clamps a "from" older than the max history span', async (t) => {
+  const { app, alerts, room, device } = await buildTestApp()
+  t.after(() => app.close())
+  const token = await loginAs(app, 'viewer@test.local', 'viewer-pass')
+  const now = Date.now()
+  const day = 24 * 60 * 60 * 1000
+  const old = await openCo2Alert(alerts, device.id, new Date(now - 20 * day))
+  await alerts.resolve(old.id, { value: 850, at: new Date(now - 19 * day), eventId: null })
+  const recent = await openCo2Alert(alerts, device.id, new Date(now - day))
+  await alerts.resolve(recent.id, { value: 850, at: new Date(now - day / 2), eventId: null })
+
+  const thirtyDaysAgo = new Date(now - 30 * day).toISOString()
+  const response = await app.inject({
+    method: 'GET',
+    url: `/rooms/${room.id}/alerts?status=all&from=${thirtyDaysAgo}`,
+    headers: authHeader(token)
+  })
+
+  assert.equal(response.statusCode, 200)
+  assert.deepStrictEqual((response.json() as Array<{ id: string }>).map((a) => a.id), [recent.id])
 })
 
 test('POST /rooms is forbidden for a VIEWER', async (t) => {
